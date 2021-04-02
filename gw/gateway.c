@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -29,9 +30,18 @@ const char METER_TYPE_NAME[] = "";
 const char PUT_POST_TEMPLATE[] = "%s %s%s HTTP/1.1\r\n\
 Authorization: Bearer %s\r\n\
 Content-Type: application/json\r\n\
-Content-Length: %d\r\n\r\n%s\r\n\r\n";
-const char GET_TEMPLATE[] = "GET %s%s HTTP/1.1\n\
-accept: application/json\n\
+User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36\r\n\
+Connection: keep-alive\r\n\
+Host: %s:%d\r\n\
+Accept-Language: en-US,en;q=0.9\r\n\
+Content-Length: %d\r\n\r\n\
+%s\r\n\r\n";
+const char GET_TEMPLATE[] = "GET %s%s HTTP/1.1\r\n\
+accept: application/json\r\n\
+User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36\r\n\
+Connection: keep-alive\r\n\
+Host: %s:%d\r\n\
+Accept-Language: en-US,en;q=0.9\r\n\
 Authorization: Bearer %s\r\n\r\n";
 
 void error(const char *msg) { 
@@ -274,7 +284,7 @@ struct response* getResponse(int sockfd) {
     return r;
 }
 
-struct response* sendRequest(struct in_addr* host, char* method, char* endpoint, struct strlist* paramList, char* requestBody) {
+struct response* sendRequest(struct in_addr* host, char* ip, char* method, char* endpoint, struct strlist* paramList, char* requestBody) {
     char* request;
     char* params = malloc(paramList->totalLen + 1);
     struct strelem* tmp = paramList->begin;
@@ -298,16 +308,23 @@ struct response* sendRequest(struct in_addr* host, char* method, char* endpoint,
     if (strcmp(method, "POST") == 0 ||
         strcmp(method, "PUT") == 0) template = PUT_POST_TEMPLATE;
 
+    int portCpy = PORT;
+    int portLen = 0;
+    while(portCpy > 0) {portCpy /= 10; portLen++;}
     if (strcmp(method, "GET") == 0) {
-        requestLen = 65 + strlen(endpoint) + strlen(params) + strlen(TOKEN);
+        requestLen = strlen(GET_TEMPLATE) - 10 + strlen(endpoint) + strlen(params) + strlen(TOKEN) + strlen(ip) + portLen;
         request = malloc(requestLen + 1);
-        sprintf(request, template, endpoint, params, TOKEN);
+        sprintf(request, template, endpoint, params, ip, PORT, TOKEN);
     } else if (strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0) {
         bodyLen = strlen(requestBody);
         while (bodyLen > 0) { bodyLen /= 10; contentLenDigits++; }
-        requestLen = 92 + strlen(method) + strlen(endpoint) + strlen(params) + strlen(TOKEN) + contentLenDigits + strlen(requestBody);
+        requestLen = strlen(PUT_POST_TEMPLATE) - 16
+            + strlen(method) + strlen(endpoint)
+            + strlen(params) + strlen(TOKEN)
+            + contentLenDigits + strlen(requestBody)
+            + strlen(ip) + portLen;
         request = malloc(requestLen + 1);
-        sprintf(request, template, method, endpoint, params, TOKEN, strlen(requestBody), requestBody);
+        sprintf(request, template, method, endpoint, params, TOKEN, ip, PORT, strlen(requestBody), requestBody);
     } else {
         error("Invalid method");
     }
@@ -361,15 +378,17 @@ int main(int argc, char **argv)
     /* Setting host */
 
     char* env = argv[1];
+    char* ip;
     struct in_addr host;
 
     if (strcmp("local", env) == 0) {
-        inet_aton(ENV_LOCAL, &host);
+        ip = ENV_LOCAL;
     } else if (strcmp("dev", env) == 0) {
-        inet_aton(ENV_DEV, &host);
+        ip = ENV_DEV;
     } else {
         error("Invalid env. Available: local/dev");
     }
+    inet_aton(ip, &host);
 
     /* Creating param list */
 
@@ -386,13 +405,12 @@ int main(int argc, char **argv)
 
     printf("Sending request to get cid/mid. GET /api/sensors/states/find?meter_dev=%s&meter_type_name=%s - ", METER_DEV, METER_TYPE_NAME);
     fflush(stdout);
-    r = sendRequest(&host, "GET", "/api/sensors/states/find", params, NULL);
+    r = sendRequest(&host, ip, "GET", "/api/sensors/states/find", params, NULL);
     destroyList(params);
 
     /* Processing response */
 
     printf("%d\n", r->status);
-
     cid = getVarFromFormattedJson(r->content, "client_cid");
     mid = getVarFromFormattedJson(r->content, "sensor_mid");
 
@@ -411,7 +429,7 @@ int main(int argc, char **argv)
     \"sensor_mid\": %s,\n\
     \"signal_type_moid\": 32,\n\
     \"data\": [{\n\
-        \"time\": %ld,\n\
+        \"time\": %llu,\n\
         \"value\": %d,\n\
         \"type\": \"DBL\",\n\
         \"origin\": 2\n\
@@ -427,7 +445,9 @@ int main(int argc, char **argv)
         size_t size = strlen(template) - 9 + strlen(cid) + strlen(mid) + 13 + valueDigits + 1; 
 
         char* requestBody = malloc(size);
-        sprintf(requestBody, template, cid, mid, time(NULL) * 1000, value);
+        memset(requestBody, 0, size);
+        unsigned long long random_time = rand() % (100000000000 + 1 - 1517371561663) + 1517371561663;
+        sprintf(requestBody, template, cid, mid, random_time, value);
         requestBody[size - 1] = '\0';
 
         /* Sending request to put data */
@@ -435,7 +455,7 @@ int main(int argc, char **argv)
 
         printf("Putting signals data - ");
         fflush(stdout);
-        r = sendRequest(&host, "PUT", "/api/sensors/signals/data", params, requestBody);
+        r = sendRequest(&host, ip, "PUT", "/api/sensors/signals/data", params, requestBody);
         destroyList(params);
         free(requestBody);
         printf("%d\n", r->status);
