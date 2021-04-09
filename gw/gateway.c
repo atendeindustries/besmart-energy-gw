@@ -3,46 +3,23 @@
  */
 
 #include <time.h>
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <net/if.h>
-#include <arpa/inet.h>
-
-#define h_addr h_addr_list[0]
+#include "https.h"
 
 /* config */
-const uint16_t PORT = 7890;
+const uint16_t PORT = 443;
 const char ENV_LOCAL[] = "127.0.0.1";
 const char ENV_DEV[] = "127.0.0.1";
+const char ENV_DEV_NAME[] = "localhost";
 const char TOKEN[] = "";
 const char METER_DEV[] = "";
 const char METER_TYPE_NAME[] = "";
-
-const char PUT_POST_TEMPLATE[] = "%s %s%s HTTP/1.1\r\n\
-Authorization: Bearer %s\r\n\
-Content-Type: application/json\r\n\
-User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36\r\n\
-Connection: keep-alive\r\n\
-Host: %s:%d\r\n\
-Accept-Language: en-US,en;q=0.9\r\n\
-Content-Length: %d\r\n\r\n\
-%s\r\n\r\n";
-const char GET_TEMPLATE[] = "GET %s%s HTTP/1.1\r\n\
-accept: application/json\r\n\
-User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36\r\n\
-Connection: keep-alive\r\n\
-Host: %s:%d\r\n\
-Accept-Language: en-US,en;q=0.9\r\n\
-Authorization: Bearer %s\r\n\r\n";
+const char FIND_STATE_ENDPOINT[] = "";
+const char PUT_SIGNALS_DATA_ENDPOINT[] = "";
+// ------
 
 void error(const char *msg) { 
     printf("%s\n", msg);
@@ -54,75 +31,6 @@ uint8_t startsWith(const char *str, const char *pre)
     size_t lenpre = strlen(pre),
            lenstr = strlen(str);
     return lenstr < lenpre ? 0 : memcmp(pre, str, lenpre) == 0;
-}
-
-struct strelem {
-    char* e;
-    int len;
-    struct strelem* next;
-};
-
-struct strlist {
-    struct strelem* begin;
-    struct strelem* end;
-    int totalLen;
-};
-
-struct strlist* newList(void) {
-    struct strlist* lst = malloc(sizeof(struct strlist));
-    lst->begin = NULL;
-    lst->end = NULL;
-    lst->totalLen = 0;
-    return lst;
-}
-
-void destroyList(struct strlist* lst) {
-    struct strelem* curr = lst->begin;
-    struct strelem* next;
-    while (curr != NULL) {
-        next = curr->next;
-        free(curr->e);
-        free(curr);
-        curr = next;
-    }
-    free(lst);
-}
-
-void printList(struct strlist* lst) {
-    int i = 0;
-    struct strelem* tmp = lst->begin;
-    printf("[\n");
-    while (tmp != NULL) {
-        printf("  %d: %s,\n", i++, tmp->e);
-        tmp = tmp->next;
-    }
-    printf("]\n");
-}
-
-void appendList(struct strlist* lst, char* e) {
-    struct strelem* elem = malloc(sizeof(struct strelem));
-    elem->e = e;
-    elem->len = strlen(e);
-    lst->totalLen += elem->len;
-    elem->next = NULL;
-    if (lst->begin == NULL) {
-        lst->begin = lst->end = elem;
-    } else {
-        lst->end->next = elem;
-        lst->end = elem;
-    }
-}
-
-struct response {
-    uint16_t status;
-    struct strlist* headers;
-    char* content;
-};
-
-void destroyResponse(struct response* r) {
-    destroyList(r->headers);
-    free(r->content);
-    free(r);
 }
 
 char* getLine(char* str) {
@@ -179,293 +87,92 @@ char* getVarFromFormattedJson(char* json, char* var) {
     return "";
 }
 
-struct strlist* createParamList(int cnt, char** params) {
-    int i, len;
-    char* tmp;
-    struct strlist* paramList = newList();
-    for (i = 0; i < cnt; i++) {
-        len = strlen(params[i]);
-        tmp = malloc((len + 2));
-        if (paramList->begin == NULL) tmp[0] = '?';
-        else tmp[0] = '&';
-        memcpy(tmp + 1, params[i], len + 1);
-        appendList(paramList, tmp);
-    }
-    return paramList;
-}
-
-char* readLine(int fd, char removeCRLF) {
-    int size = 100;
-    char* line = malloc(size);
-    char currentChar = 0;
-    int len = 0, bytes = 0;
-
-    memset(line, 0, size);
-    do {
-        bytes = read(fd, &currentChar, 1);
-        if (bytes < 0) error("Error while reading from socket.");
-        if (bytes > 0) {
-            line[len++] = currentChar;
-        }
-        if (len == size) {
-            size *= 1.5;
-            line = realloc(line, size);
-        }
-    } while (bytes > 0 && currentChar != '\n');
-    size = len + 1 - (removeCRLF > 0) * 2;
-    line = realloc(line, size);
-    line[size - 1] = '\0';
-    return line;
-}
-
-uint16_t getStatusCode(int sockfd) {
-    char status[4];
-    uint16_t statuscode;
-    int i = 0;
-    char* line = readLine(sockfd, 1);
-
-    if (!startsWith(line, "HTTP/")) error("Couldn't parse HTTP response.");
-    while (line[i++] != ' ') {}
-    memcpy(status, line + i, 3);
-    status[3] = '\0';
-    statuscode = atoi(status);
-    return statuscode;
-}
-
-struct strlist* getHeaders(int sockfd) {
-    char isEmpty = 0;
-    char* tmp;
-    struct strlist* headers = newList();
-    do {
-        tmp = readLine(sockfd, 1);
-        isEmpty = (tmp[0] == '\0');
-        if (!isEmpty) appendList(headers, tmp);
-    } while (!isEmpty);
-    
-    return headers;
-}
-
-int getContentLengthFromHeaders(struct strlist* headers) {
-    struct strelem* elem = headers->begin;
-    while (elem != NULL) {
-        if (startsWith(elem->e, "Content-Length:")) {
-            return atoi(elem->e + 16);
-        }
-        elem = elem->next;
-    }
-    return -1;
-}
-
-struct response* getResponse(int sockfd) {
-    int contentLen, bytes, received = 0;
-    char* content;
-
-    uint16_t statuscode = getStatusCode(sockfd);
-    struct strlist* headers = getHeaders(sockfd);
-    contentLen = getContentLengthFromHeaders(headers);
-
-    /* Reading response body */
-
-    content = malloc(contentLen + 1);
-    memset(content, 0, contentLen + 1);
-
-    while (received < contentLen) {
-        bytes = read(sockfd, content + received, contentLen - received);
-        if (bytes < 0) error("ERROR reading content from socket");
-        if (bytes == 0) break;
-        received+=bytes;
-    }
-    close(sockfd);
-
-    struct response* r = malloc(sizeof(content));
-    r->status = statuscode;
-    r->headers = headers;
-    r->content = content;
-    return r;
-}
-
-struct response* sendRequest(struct in_addr* host, char* ip, char* method, char* endpoint, struct strlist* paramList, char* requestBody) {
-    char* request;
-    char* params = malloc(paramList->totalLen + 1);
-    struct strelem* tmp = paramList->begin;
-	struct sockaddr_in serv_addr;
-    int sockfd, bytes, sent, total, bodyLen, contentLenDigits = 0, i = 0;
-
-    /* Parsing params */
-
-    memset(params, 0, paramList->totalLen);
-    while (tmp != NULL) {
-        memcpy(params + i, tmp->e, tmp->len);
-        i += tmp->len;
-        tmp = tmp->next;
-    }
-    params[i] = '\0';
-
-    /* Building request */
-    size_t requestLen = 0;
-    const char* template;
-    if (strcmp(method, "GET") == 0) template = GET_TEMPLATE;
-    if (strcmp(method, "POST") == 0 ||
-        strcmp(method, "PUT") == 0) template = PUT_POST_TEMPLATE;
-
-    int portCpy = PORT;
-    int portLen = 0;
-    while(portCpy > 0) {portCpy /= 10; portLen++;}
-    if (strcmp(method, "GET") == 0) {
-        requestLen = strlen(GET_TEMPLATE) - 10 + strlen(endpoint) + strlen(params) + strlen(TOKEN) + strlen(ip) + portLen;
-        request = malloc(requestLen + 1);
-        sprintf(request, template, endpoint, params, ip, PORT, TOKEN);
-    } else if (strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0) {
-        bodyLen = strlen(requestBody);
-        while (bodyLen > 0) { bodyLen /= 10; contentLenDigits++; }
-        requestLen = strlen(PUT_POST_TEMPLATE) - 16
-            + strlen(method) + strlen(endpoint)
-            + strlen(params) + strlen(TOKEN)
-            + contentLenDigits + strlen(requestBody)
-            + strlen(ip) + portLen;
-        request = malloc(requestLen + 1);
-        sprintf(request, template, method, endpoint, params, TOKEN, ip, PORT, strlen(requestBody), requestBody);
-    } else {
-        error("Invalid method");
-    }
-    request[requestLen] = '\0';
-
-    free(params);
-
-    /* Connecting to host */
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) error("ERROR opening socket");
-
-	memset(&serv_addr, 0, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_port = (PORT >> 8) | (PORT << 8);
-	memcpy(&serv_addr.sin_addr.s_addr, (char *)host, sizeof(*host));
-
-    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0)
-		error("Error connecting!");
-
-    /* Sending data */
-
-    total = strlen(request);
-    sent = 0;
-    do {
-        bytes = write(sockfd,request+sent,total-sent);
-        if (bytes < 0)
-            error("ERROR writing message to socket");
-        if (bytes == 0)
-            break;
-        sent+=bytes;
-    } while (sent < total);
-
-    free(request);
-
-    return getResponse(sockfd);
-}
-
 int main(int argc, char **argv)
 {
     srand(time(NULL));
+
+    time_t add_time = 0;
 
     if (argc < 2) {
         error("Usage: /bin/sockettest [env]");
     }
 
-    struct response* r;
     char* cid;
     char* mid;
 
     /* Setting host */
 
     char* env = argv[1];
-    char* ip;
-    struct in_addr host;
+    char ip[15];
+    char endpoint[1024];
+    char data[1024];
+    char response[4096];
 
     if (strcmp("local", env) == 0) {
-        ip = ENV_LOCAL;
+        strcpy(ip, ENV_LOCAL);
     } else if (strcmp("dev", env) == 0) {
-        ip = ENV_DEV;
+        strcpy(ip, ENV_DEV);
     } else {
         error("Invalid env. Available: local/dev");
     }
-    inet_aton(ip, &host);
 
-    /* Creating param list */
+    int return_code, size;
+    HTTP_INFO hi1;
+    http_init(&hi1, FALSE);
 
-    char* meterDevParam = malloc(strlen(METER_DEV) + 12);
-    sprintf(meterDevParam, "?meter_dev=%s", METER_DEV);
-    char* meterTypeNameParam = malloc((strlen(METER_TYPE_NAME) + 18));
-    sprintf(meterTypeNameParam, "&meter_type_name=%s", METER_TYPE_NAME);
+    if(http_open(&hi1, ip) < 0)
+    {
+        http_strerror(data, 1024);
+        http_close(&hi1);
+        error(data);
+    }
 
-    struct strlist* params = newList();
-    appendList(params, meterDevParam);
-    appendList(params, meterTypeNameParam);
-
-    /* Sending request to get cid/mid */
-
-    printf("Sending request to get cid/mid. GET /api/sensors/states/find?meter_dev=%s&meter_type_name=%s - ", METER_DEV, METER_TYPE_NAME);
+    sprintf(endpoint, "https://%s:%d%s?meter_dev=%s&meter_type_name=%s", ENV_DEV_NAME, PORT, FIND_STATE_ENDPOINT, METER_DEV, METER_TYPE_NAME);
+    printf("%s - ", endpoint);
     fflush(stdout);
-    r = sendRequest(&host, ip, "GET", "/api/sensors/states/find", params, NULL);
-    destroyList(params);
+    strcpy(hi1.request.authorization, TOKEN);
+    return_code = http_get(&hi1, endpoint, response, sizeof(response));
+    printf("%d\n", return_code);
+    printf("response: %s\n", response);
 
     /* Processing response */
-
-    printf("%d\n", r->status);
-    cid = getVarFromFormattedJson(r->content, "client_cid");
-    mid = getVarFromFormattedJson(r->content, "sensor_mid");
-
-    destroyResponse(r);
+    cid = getVarFromFormattedJson(response, "client_cid");
+    mid = getVarFromFormattedJson(response, "sensor_mid");
 
     if (strlen(mid) > 0) {
-        printf("Identified (cid: %s, mid: %s)\n", cid, mid);
+        printf("Identified (cid: %s, mid: %s)\n\n", cid, mid);
     } else {
         error("Couldn't identify meter.");
     }
-
-
-
-    char template[] = "[{\n\
-    \"client_cid\": %s,\n\
-    \"sensor_mid\": %s,\n\
-    \"signal_type_moid\": 32,\n\
-    \"data\": [{\n\
-        \"time\": %llu,\n\
-        \"value\": %d,\n\
-        \"type\": \"DBL\",\n\
-        \"origin\": 2\n\
-    }]\n\
-}]";
-
-    int valueDigits;
+    float value = (float)rand() / (float)RAND_MAX;
     while (1) {
-        valueDigits = 0;
-        int value = rand() % (1500 + 1 - 500) + 500;
-        while (value != 0) {value /= 10; valueDigits++;}
-        // size_t size = snprintf(NULL, 0, template, cid, mid, time(NULL) * 1000, value) + 1;
-        size_t size = strlen(template) - 9 + strlen(cid) + strlen(mid) + 13 + valueDigits + 1; 
+        value += (float)rand() / (float)RAND_MAX;
 
-        char* requestBody = malloc(size);
-        memset(requestBody, 0, size);
-        unsigned long long random_time = rand() % (100000000000 + 1 - 1517371561663) + 1517371561663;
-        sprintf(requestBody, template, cid, mid, random_time, value);
-        requestBody[size - 1] = '\0';
+        size = sprintf(data,
+                    "[{\n"
+                    "    \"client_cid\": %s,\n"
+                    "    \"sensor_mid\": %s,\n"
+                    "    \"signal_type_moid\": 32,\n"
+                    "    \"data\": [{\n"
+                    "        \"time\": %llu,\n"
+                    "        \"value\": %f,\n"
+                    "        \"type\": \"DBL\",\n"
+                    "        \"origin\": 1\n"
+                    "    }]\n"
+                    "}]\r\n",
+                    cid, mid, time(NULL) * 1000, value
+                    );
+        printf("req: %s\n\n", data);
 
-        /* Sending request to put data */
-        params = newList();
-
-        printf("Putting signals data - ");
-        fflush(stdout);
-        r = sendRequest(&host, ip, "PUT", "/api/sensors/signals/data", params, requestBody);
-        destroyList(params);
-        free(requestBody);
-        printf("%d\n", r->status);
-
-        /* Processing response */
-
-        printf("Body:\n%s\n", r->content);
+        strcpy(hi1.request.authorization, TOKEN);
+        sprintf(endpoint, "https://%s:%d%s", ENV_DEV_NAME, PORT, PUT_SIGNALS_DATA_ENDPOINT);
+        return_code = http_put_post("PUT", &hi1, endpoint, data, response, sizeof(response));
+        printf("Status: %d\n", return_code);
+        printf("return body: %s \n", response);
         printf("\n\nSleeping 1min...\n\n");
         sleep(60);
     }
 
 	return 0;
 }
+
