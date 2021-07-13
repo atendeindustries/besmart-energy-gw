@@ -17,12 +17,12 @@
 const uint16_t PORT = 443;
 const char TIME_API[] = "213.188.196.246";
 const char ENV_LOCAL[] = "127.0.0.1";
-const char ENV_DEV[] = "127.0.0.1";
-const char ENV_DEV_NAME[] = "localhost";
-const char TOKEN[] = "";
-const char METER_TYPE_NAME[] = "";
-const char FIND_STATE_ENDPOINT[] = "";
-const char PUT_SIGNALS_DATA_ENDPOINT[] = "";
+const char ENV_DEV[] = "77.79.196.147";
+const char TOKEN[] = "super_token";
+const char METER_TYPE_NAME[] = "EM1Ph";
+const char ENV_DEV_NAME[] = "api.besmart.energy";
+const char FIND_STATE_ENDPOINT[] = "/api/sensors/states/find";
+const char PUT_SIGNALS_DATA_ENDPOINT[] = "/api/sensors/signals/data";
 // ------
 
 void error(const char *msg) { 
@@ -71,6 +71,15 @@ struct sensorId identify(HTTP_INFO* hi) {
     sid.sensor_mid = sensor_mid != NULL ? atoi(sensor_mid + 13) : 0;
     
     return sid;
+}
+
+void open_connection(HTTP_INFO* hi, char* ip) {
+    if(http_open(hi, ip) < 0)
+    {
+        http_strerror(data, 1024);
+        http_close(hi);
+        error(data);
+    }
 }
 
 int main(int argc, char **argv)
@@ -123,13 +132,9 @@ int main(int argc, char **argv)
         printf("Could not set meter time (%d)", res);
     }
 
-    if(http_open(&hi1, ip) < 0)
-    {
-        http_strerror(data, 1024);
-        http_close(&hi1);
-        error(data);
-    }
+    open_connection(&hi1, ip);
     struct sensorId sid = identify(&hi1);
+    http_close(&hi1);
 
     if (sid.client_cid > 0 && sid.sensor_mid > 0) {
         printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
@@ -171,9 +176,11 @@ int main(int argc, char **argv)
         );
         printf("req: %s\n\n", data);
 
+        open_connection(&hi1, ip);
         strcpy(hi1.request.authorization, TOKEN);
         sprintf(endpoint, "https://%s:%d%s", ENV_DEV_NAME, PORT, PUT_SIGNALS_DATA_ENDPOINT);
         return_code = http_put_post("PUT", &hi1, endpoint, data, response, sizeof(response));
+        http_close(&hi1);
         printf("Status: %d\n", return_code);
         printf("return body: %s \n", response);
         printf("\n\nSleeping 15m...\n\n");
