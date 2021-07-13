@@ -80,9 +80,9 @@ char *strtoken(char *src, char *dst, int size)
 static int parse_url(char *src_url, int *https, char *host, char *port, char *url)
 {
     char *p1, *p2;
-    char str[1024];
+    char str[768];
 
-    memset(str, 0, 1024);
+    memset(str, 0, 768);
 
     if(strncmp(src_url, "http://", 7)==0) {
         p1=&src_url[7];
@@ -130,13 +130,13 @@ static int parse_url(char *src_url, int *https, char *host, char *port, char *ur
 static int http_header(HTTP_INFO *hi, char *param)
 {
     char *token;
-    char t1[256], t2[256];
+    char t1[128], t2[128];
     int  len;
 
     token = param;
 
-    if((token=strtoken(token, t1, 256)) == 0) return -1;
-    if((token=strtoken(token, t2, 256)) == 0) return -1;
+    if((token=strtoken(token, t1, 128)) == 0) return -1;
+    if((token=strtoken(token, t2, 128)) == 0) return -1;
 
     if(strncasecmp(t1, "HTTP", 4) == 0)
     {
@@ -466,7 +466,7 @@ static int mbedtls_net_connect_timeout( mbedtls_net_context *ctx, const char *ho
     hints.ai_socktype = proto == MBEDTLS_NET_PROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
     hints.ai_protocol = proto == MBEDTLS_NET_PROTO_UDP ? 17 : 6;
 
-    if( getaddrinfo( "77.79.196.147", port, &hints, &addr_list ) != 0 ) {
+    if( getaddrinfo(host, port, &hints, &addr_list ) != 0 ) {
         return( MBEDTLS_ERR_NET_UNKNOWN_HOST );
     }
 
@@ -575,8 +575,7 @@ static int https_connect(HTTP_INFO *hi, char *host, char *port)
             return ret;
         }
 
-        ca_crt_rsa[ca_crt_rsa_size - 1] = 0;
-        ret = mbedtls_x509_crt_parse(&hi->tls.cacert, (uint8_t *)ca_crt_rsa, ca_crt_rsa_size);
+        ret = mbedtls_x509_crt_parse(&hi->tls.cacert, ca_crt_rsa, sizeof(ca_crt_rsa));
         if( ret != 0 )
         {
             return ret;
@@ -690,12 +689,11 @@ int http_close(HTTP_INFO *hi)
 /*---------------------------------------------------------------------*/
 int http_get(HTTP_INFO *hi, char *url, char *response, int size)
 {
-    char        request[1024], err[100];
-    char        host[256], port[10], dir[1024];
+    char        request[768], err[100];
+    char        host[256], port[10], dir[768];
     int         sock_fd, https, verify;
     int         ret, opt, len;
     socklen_t   slen;
-
 
     if(NULL == hi) return -1;
 
@@ -747,7 +745,7 @@ int http_get(HTTP_INFO *hi, char *url, char *response, int size)
     }
 
     /* Send HTTP request. */
-    len = snprintf(request, 1024,
+    len = snprintf(request, 768,
             "GET %s HTTP/1.1\r\n"
             "User-Agent: Mozilla/4.0\r\n"
             "Host: %s:%s\r\n"
@@ -756,7 +754,6 @@ int http_get(HTTP_INFO *hi, char *url, char *response, int size)
             "Authorization: Bearer %s\r\n"
             "%s\r\n",
             dir, host, port, hi->request.authorization, hi->request.cookie);
-    printf("Sending GET REQ:\n%s\n", request);
 
     if((ret = https_write(hi, request, len)) != len)
     {
@@ -838,8 +835,8 @@ int http_get(HTTP_INFO *hi, char *url, char *response, int size)
 /*---------------------------------------------------------------------*/
 int http_put_post(char* method, HTTP_INFO *hi, char *url, char *data, char *response, int size)
 {
-    char        request[1024], err[100];
-    char        host[256], port[10], dir[1024];
+    char        request[768], err[100];
+    char        host[256], port[10], dir[768];
     int         sock_fd, https, verify;
     int         ret, opt, len;
     socklen_t   slen;
@@ -902,7 +899,7 @@ int http_put_post(char* method, HTTP_INFO *hi, char *url, char *data, char *resp
     }
 
     /* Send HTTP request. */
-    len = snprintf(request, 1024,
+    len = snprintf(request, 768,
             "%s %s HTTP/1.1\r\n"
             "User-Agent: Mozilla/4.0\r\n"
             "Host: %s:%s\r\n"
@@ -1007,7 +1004,7 @@ void http_strerror(char *buf, int len)
 /*---------------------------------------------------------------------*/
 int http_open(HTTP_INFO *hi, char *url)
 {
-    char        host[256], port[10], dir[1024];
+    char        host[256], port[10], dir[768];
     int         sock_fd, https, verify;
     int         ret, opt;
     socklen_t   slen;
@@ -1078,7 +1075,7 @@ int http_write_header(HTTP_INFO *hi)
     if (NULL == hi) return -1;
 
     /* Send HTTP request. */
-    len = snprintf(request, 1024,
+    len = snprintf(request, 768,
                    "%s %s HTTP/1.1\r\n"
                    "User-Agent: Mozilla/4.0\r\n"
                    "Host: %s:%s\r\n"

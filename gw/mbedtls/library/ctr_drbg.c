@@ -96,8 +96,9 @@ int mbedtls_ctr_drbg_seed_entropy_len(
      */
     mbedtls_aes_setkey_enc( &ctx->aes_ctx, key, MBEDTLS_CTR_DRBG_KEYBITS );
 
-    if( ( ret = mbedtls_ctr_drbg_reseed( ctx, custom, len ) ) != 0 )
+    if( ( ret = mbedtls_ctr_drbg_reseed( ctx, custom, len ) ) != 0 ) {
         return( ret );
+    }
 
     return( 0 );
 }

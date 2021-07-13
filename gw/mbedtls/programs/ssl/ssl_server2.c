@@ -1062,7 +1062,7 @@ int main( int argc, char *argv[] )
 #if defined(_MSC_VER)
             opt.renego_period = _strtoui64( q, NULL, 10 );
 #else
-            if( sscanf( q, "%llu", &opt.renego_period ) != 1 )
+            if( sscanf( q, "%" SCNu64, &opt.renego_period ) != 1 )
                 goto usage;
 #endif /* _MSC_VER */
             if( opt.renego_period < 2 )

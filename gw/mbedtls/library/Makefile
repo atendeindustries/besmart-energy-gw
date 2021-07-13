@@ -1,15 +1,21 @@
 
 # Also see "include/mbedtls/config.h"
 
+include ../../../../phoenix-rtos-build/Makefile.common
+include ../../../../phoenix-rtos-build/Makefile.$(TARGET_SUFF)
+$(info TARGET=$(TARGET))
+CROSS = arm-phoenix-
+#CROSS = i386-pc-phoenix-
+CC = $(CROSS)gcc
+AR = $(CROSS)ar
+
 CFLAGS	?= -O2
 WARNING_CFLAGS ?=  -Wall -W -Wdeclaration-after-statement
 LDFLAGS ?=
-CC = i386-pc-phoenix-gcc
-AR = i386-pc-phoenix-ar
 
-LOCAL_CFLAGS = $(WARNING_CFLAGS) -I../include -D_FILE_OFFSET_BITS=64
+LOCAL_CFLAGS = $(WARNING_CFLAGS) -I../include -I ../../../../libphoenix/include -D_FILE_OFFSET_BITS=64
 LOCAL_LDFLAGS =
-DEBUG = 1
+
 ifdef DEBUG
 LOCAL_CFLAGS += -g3
 endif
@@ -92,7 +98,7 @@ shared: libmbedcrypto.$(DLEXT) libmbedx509.$(DLEXT) libmbedtls.$(DLEXT)
 
 # tls
 libmbedtls.a: $(OBJS_TLS)
-	echo "  AR    $@"
+	echo "  $(AR)    $@"
 	$(AR) -rc $@ $(OBJS_TLS)
 	echo "  RL    $@"
 	$(AR) -s $@
@@ -115,7 +121,7 @@ libmbedtls.dll: $(OBJS_TLS) libmbedx509.dll
 
 # x509
 libmbedx509.a: $(OBJS_X509)
-	echo "  AR    $@"
+	echo "  $(AR)    $@"
 	$(AR) -rc $@ $(OBJS_X509)
 	echo "  RL    $@"
 	$(AR) -s $@
@@ -138,7 +144,7 @@ libmbedx509.dll: $(OBJS_X509) libmbedcrypto.dll
 
 # crypto
 libmbedcrypto.a: $(OBJS_CRYPTO)
-	echo "  AR    $@"
+	echo "  $(AR)    $@"
 	$(AR) -rc $@ $(OBJS_CRYPTO)
 	echo "  RL    $@"
 	$(AR) -s $@

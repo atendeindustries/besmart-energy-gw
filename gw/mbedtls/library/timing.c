@@ -70,6 +70,19 @@ struct _hr_time
     struct timeval start;
 };
 
+int gettimeofday(struct timeval *tp, void *tzp)
+{
+	time_t t, o;
+
+	/* TODO: Set errno if failed */
+	gettime(&t, &o);
+
+	tp->tv_sec = (t + o) / (1000 * 1000);
+	tp->tv_usec = (t + o) % (1000 * 1000);
+
+	return 0;
+}
+
 #endif /* _WIN32 && !EFIX64 && !EFI32 */
 
 #if !defined(HAVE_HARDCLOCK) && defined(MBEDTLS_HAVE_ASM) &&  \

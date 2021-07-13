@@ -13,8 +13,8 @@
 #include "mbedtls/include/mbedtls/certs.h"
 
 /*---------------------------------------------------------------------*/
-#define H_FIELD_SIZE     512
-#define H_READ_SIZE     2048
+#define H_FIELD_SIZE     128
+#define H_READ_SIZE     512
 
 #undef TRUE
 #undef FALSE

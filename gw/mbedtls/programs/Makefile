@@ -76,8 +76,6 @@ ifdef PTHREAD
 APPS +=	ssl/ssl_pthread_server$(EXEXT)
 endif
 
-CC = i386-pc-phoenix-gcc
-AR = i386-pc-phoenix-ar
 .SILENT:
 
 .PHONY: all clean list

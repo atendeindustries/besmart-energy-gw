@@ -97,7 +97,7 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
 #if defined(MBEDTLS_TIMING_C)
     mbedtls_entropy_add_source( ctx, mbedtls_hardclock_poll, NULL,
                                 MBEDTLS_ENTROPY_MIN_HARDCLOCK,
-                                MBEDTLS_ENTROPY_SOURCE_WEAK );
+                                MBEDTLS_ENTROPY_SOURCE_STRONG );
 #endif
 #if defined(MBEDTLS_HAVEGE_C)
     mbedtls_entropy_add_source( ctx, mbedtls_havege_poll, &ctx->havege_data,
@@ -255,8 +255,9 @@ static int entropy_gather_internal( mbedtls_entropy_context *ctx )
         }
     }
 
-    if( have_one_strong == 0 )
+    if( have_one_strong == 0 ) {
         return( MBEDTLS_ERR_ENTROPY_NO_STRONG_SOURCE );
+    }
 
     return( 0 );
 }
@@ -289,8 +290,9 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
     mbedtls_entropy_context *ctx = (mbedtls_entropy_context *) data;
     unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE];
 
-    if( len > MBEDTLS_ENTROPY_BLOCK_SIZE )
+    if( len > MBEDTLS_ENTROPY_BLOCK_SIZE ) {
         return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
+    }
 
 #if defined(MBEDTLS_ENTROPY_NV_SEED)
     /* Update the NV entropy seed before generating any entropy for outside
@@ -299,8 +301,9 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
     if( ctx->initial_entropy_run == 0 )
     {
         ctx->initial_entropy_run = 1;
-        if( ( ret = mbedtls_entropy_update_nv_seed( ctx ) ) != 0 )
+        if( ( ret = mbedtls_entropy_update_nv_seed( ctx ) ) != 0 ) {
             return( ret );
+        }
     }
 #endif
 

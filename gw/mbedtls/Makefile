@@ -2,9 +2,6 @@
 DESTDIR=/usr/local
 PREFIX=mbedtls_
 
-CC = i386-pc-phoenix-gcc
-AR = i386-pc-phoenix-ar
-
 .SILENT:
 
 .PHONY: all no_test programs lib tests install uninstall clean test check covtest lcov apidoc apidoc_clean

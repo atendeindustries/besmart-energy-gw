@@ -232,7 +232,6 @@ int mbedtls_havege_poll( void *data,
 {
     mbedtls_havege_state *hs = (mbedtls_havege_state *) data;
     *olen = 0;
-
     if( mbedtls_havege_random( hs, output, len ) != 0 )
         return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
 
