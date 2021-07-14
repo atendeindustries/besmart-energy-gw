@@ -103,18 +103,18 @@ static int parse_url(char *src_url, int *https, char *host, char *port, char *ur
     else
     {
         strncpy(str, p1, p2-p1);
-        snprintf(url, 256, "%s", p2);
+        strncpy(url, p2, 255);
     }
 
     if((p1=strstr(str, ":")) != NULL)
     {
         *p1=0;
-        snprintf(host, 256, "%s", str);
-        snprintf(port, 5, "%s", p1+1);
+        strncpy(host, str, 255);
+        strncpy(port, p1 + 1, 5);
     }
     else
     {
-        snprintf(host, 256, "%s", str);
+        strncpy(host, str, 255);
 
         if(*https == 0)
             snprintf(port, 5, "80");
@@ -814,9 +814,9 @@ int http_get(HTTP_INFO *hi, char *url, char *response, int size)
     }
     else
     {
-        strncpy(hi->url.host, host, strlen(host));
-        strncpy(hi->url.port, port, strlen(port));
-        strncpy(hi->url.path, dir, strlen(dir));
+        memcpy(hi->url.host, host, strlen(host));
+        memcpy(hi->url.port, port, strlen(port));
+        memcpy(hi->url.path, dir, strlen(dir));
     }
 
     /*
@@ -977,9 +977,9 @@ int http_put_post(char* method, HTTP_INFO *hi, char *url, char *data, char *resp
     }
     else
     {
-        strncpy(hi->url.host, host, strlen(host));
-        strncpy(hi->url.port, port, strlen(port));
-        strncpy(hi->url.path, dir, strlen(dir));
+        memcpy(hi->url.host, host, strlen(host));
+        memcpy(hi->url.port, port, strlen(port));
+        memcpy(hi->url.path, dir, strlen(dir));
     }
 
 /*
@@ -1058,9 +1058,9 @@ int http_open(HTTP_INFO *hi, char *url)
 //          printf("socket reuse: %d \n", sock_fd);
     }
 
-    strncpy(hi->url.host, host, strlen(host));
-    strncpy(hi->url.port, port, strlen(port));
-    strncpy(hi->url.path, dir, strlen(dir));
+    memcpy(hi->url.host, host, strlen(host));
+    memcpy(hi->url.port, port, strlen(port));
+    memcpy(hi->url.path, dir, strlen(dir));
 
     return 0;
 }
@@ -1068,8 +1068,8 @@ int http_open(HTTP_INFO *hi, char *url)
 /*---------------------------------------------------------------------*/
 int http_write_header(HTTP_INFO *hi)
 {
-    char        request[4096], buf[H_FIELD_SIZE];
-    int         ret, len, l;
+    char        request[4096];
+    int         ret, len;
 
 
     if (NULL == hi) return -1;

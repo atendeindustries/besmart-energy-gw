@@ -12,18 +12,7 @@
 #include "../../libmeter/meterbasic.h"
 #include "../../metersrv/metersrv/sensor.h"
 #include "https.h"
-
-/* config */
-const uint16_t PORT = 443;
-const char TIME_API[] = "213.188.196.246";
-const char ENV_LOCAL[] = "127.0.0.1";
-const char ENV_DEV[] = "127.0.0.1";
-const char ENV_DEV_NAME[] = "localhost";
-const char TOKEN[] = "";
-const char METER_TYPE_NAME[] = "";
-const char FIND_STATE_ENDPOINT[] = "";
-const char PUT_SIGNALS_DATA_ENDPOINT[] = "";
-// ------
+#include "config.h"
 
 void error(const char *msg) { 
     printf("%s\n", msg);
@@ -48,7 +37,7 @@ unsigned long long getTime(HTTP_INFO* hi) {
         http_close(hi);
         error(data);
     }
-    int result = http_get(hi, "http://worldtimeapi.org/api/timezone/Europe/Warsaw", response, sizeof(response));
+    http_get(hi, "http://worldtimeapi.org/api/timezone/Europe/Warsaw", response, sizeof(response));
     http_close(hi);
     char* timeptr = strstr(response, "unixtime") + 10;
     unsigned long long time = strtoull(timeptr, NULL, 0);
