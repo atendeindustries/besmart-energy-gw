@@ -13,6 +13,7 @@ INCLUDES = -I$(MBEDTLS)/include
 # LDLIBS += $(MBEDTLS)/library/libmbedx509.a $(MBEDTLS)/library/libmbedtls.a $(MBEDTLS)/library/libmbedcrypto.a
 LDLIBS += $(PREFIX_O)libmbedx509.a $(PREFIX_O)libmbedtls.a $(PREFIX_O)libmbedcrypto.a
 LDFLAGS += -z stack-size=12288
+CFLAGS += -Wformat-truncation=0
 
 SOURCES = gateway.c https.c
 
