@@ -135,9 +135,7 @@ void fillGaps(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long long cu
         msg.type = 1;
         memcpy(msg.o.raw, &diff, sizeof(unsigned int));
         if ((res = msgSend(oid->port, &msg)) < 0 || msg.o.io.err == -1) {
-            printf("Could not get info from metersrv (%d)", res);
-            sleep(5);
-            continue;
+            return;
         }
         result = *(MeterBasicResult_t **)msg.o.raw;
         timestamp = *(time_t *)(msg.o.raw +
