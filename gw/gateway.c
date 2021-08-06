@@ -73,12 +73,12 @@ int sendMeasurement(HTTP_INFO* hi, int cid, int mid, int moid, time_t timestamp,
             "    \"client_cid\": %d,\n"
             "    \"sensor_mid\": %d,\n"
             "    \"signal_type_moid\": %d,\n"
-            "    \"data\": [{\n"
-            "        \"time\": %llu,\n"
-            "        \"value\": %f,\n"
-            "        \"type\": \"DBL\",\n"
-            "        \"origin\": 1\n"
-            "    }]\n"
+            "    \"data\": {\n"
+            "        \"time\": [%llu],\n"
+            "        \"value\": [%f],\n"
+            "        \"type\": [\"DBL\"],\n"
+            "        \"origin\": [1]\n"
+            "    }\n"
             "}]\r\n",
             cid,
             mid,
@@ -175,7 +175,7 @@ int main(int argc, char **argv)
     oid_t oid;
     MeterBasicResult_t *result;
     meter_state_t state;
-    time_t timestamp;
+    unsigned long long timestamp;
     int result_code;
 
     while (lookup("/dev/metersrv", NULL, &oid) < 0) {
@@ -187,6 +187,8 @@ int main(int argc, char **argv)
         error("Could not get meter status");
     }
     result = *(MeterBasicResult_t **)msg.o.raw;
+    timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
+        sizeof(MeterConf_t *) + sizeof(meter_state_t));
     state = *(meter_state_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) + sizeof(MeterConf_t *));
     strcpy(SERIAL, state.serial);
 
@@ -200,12 +202,13 @@ int main(int argc, char **argv)
 
     HTTP_INFO hi1;
     http_init(&hi1, FALSE);
-    unsigned long long currentTimestamp = getTime(&hi1);
-
-    msg.type = 7;
-    memcpy(msg.o.raw, &currentTimestamp, sizeof(currentTimestamp));
-    if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-        printf("Could not set meter time (%d)", res);
+    if (timestamp < 1e9) {
+        timestamp = getTime(&hi1);
+        msg.type = 7;
+        memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
+        if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+            printf("Could not set meter time (%d)", res);
+        }
     }
 
     open_connection(&hi1, ip);
@@ -217,7 +220,7 @@ int main(int argc, char **argv)
         error("Couldn't identify meter.");
     }
 
-    fillGaps(&hi1, &oid, sid.client_cid, sid.sensor_mid, currentTimestamp);
+    fillGaps(&hi1, &oid, sid.client_cid, sid.sensor_mid, timestamp);
 
     while (1) {
         msg.type = 5;
@@ -298,9 +301,9 @@ int main(int argc, char **argv)
             }
 
             result = *(MeterBasicResult_t **)msg.o.raw;
-            currentTimestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
+            timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
                 sizeof(MeterConf_t *) + sizeof(meter_state_t));
-            fillGaps(&hi1, &oid, sid.client_cid, sid.sensor_mid, currentTimestamp);
+            fillGaps(&hi1, &oid, sid.client_cid, sid.sensor_mid, timestamp);
         }
 
         printf("\n\nSleeping 1m...\n\n");
