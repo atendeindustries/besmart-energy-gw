@@ -10,7 +10,6 @@ ROOT_DIR = $(CURDIR)
 MBEDTLS = $(ROOT_DIR)/gw/mbedtls
 
 INCLUDES = -I$(MBEDTLS)/include
-# LDLIBS += $(MBEDTLS)/library/libmbedx509.a $(MBEDTLS)/library/libmbedtls.a $(MBEDTLS)/library/libmbedcrypto.a
 LDLIBS += $(PREFIX_O)libmbedx509.a $(PREFIX_O)libmbedtls.a $(PREFIX_O)libmbedcrypto.a
 LDFLAGS += -z stack-size=12288
 CFLAGS += -Wformat-truncation=0
@@ -32,8 +31,7 @@ $(PREFIX_PROG)gateway: $(addprefix $(PREFIX_O), $(OBJS))
 	$(MAKE) -C gw/mbedtls/library all
 	cp gw/mbedtls/library/*.a $(PREFIX_O)
 	@echo Linking: $@ ....
-	@echo $(LINK)
-	$(LINK)
+	$(Q)$(LD) -o $@ $^ $(LIB) $(LDLIBS) $(LDFLAGS)
 	# $(STRIP) -s $@
 
 $(PREFIX_O)gateway.o: gw/gateway.c
