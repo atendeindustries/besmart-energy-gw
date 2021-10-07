@@ -20,14 +20,14 @@ void test() {
     select(0, 0, 0, 0, 0);
 }
 
-
 static char endpoint[128];
-static char data[1280];
+static char data[150*8];
 static char response[1280];
 static char SERIAL[18];
 static int PHASES;
 static char METER_TYPE_NAME[6];
 static unsigned long long stateSince;
+static unsigned long long lastCap;
 
 struct sensorId {
     int client_cid;
@@ -83,37 +83,25 @@ struct sensorId identify(HTTP_INFO* hi) {
     return sid;
 }
 
-int sendMeasurement(HTTP_INFO* hi, int cid, int mid, int moid, time_t timestamp, float value) {
-    int return_code;
-    sprintf(data,
-            "[{"
-            "\"client_cid\":%d,"
-            "\"sensor_mid\":%d,"
-            "\"signal_type_moid\":%d,"
-            "\"data\":{"
-            "\"time\":[%llu],"
-            "\"value\":[%f],"
-            "\"type\":[\"DBL\"],"
-            "\"origin\":[1]"
-            "}"
-            "}]",
-            cid,
-            mid,
-            moid,
-            timestamp,
-            value
+int addDataToRequest(char* data, int cid, int mid, int moid, time_t timestamp, float value) {
+    return snprintf(data, 256,
+        "{"
+        "\"client_cid\":%d,"
+        "\"sensor_mid\":%d,"
+        "\"signal_type_moid\":%d,"
+        "\"data\":{"
+        "\"time\":[%llu],"
+        "\"value\":[%f],"
+        "\"type\":[\"DBL\"],"
+        "\"origin\":[1]"
+        "}"
+        "},",
+        cid,
+        mid,
+        moid,
+        timestamp,
+        value
     );
-    if (DEBUG) printf("req: %s\n\n", data);
-
-    do {
-        return_code = http_put(hi, PUT_SIGNALS_DATA_ENDPOINT, data, response, sizeof(response));
-        if (return_code < 0) sleep(2);
-    } while (return_code < 0);
-
-    if (DEBUG) printf("Status: %d\n", return_code);
-    if (DEBUG) printf("return body: %s \n", response);
-
-    return return_code;
 }
 
 unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
@@ -142,16 +130,60 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
             if (p2 == NULL) p1 = NULL;
         }
     }
-    lastTimestamp = lastTimestamp > 0 ? lastTimestamp / 1000 : stateSince / 1000;
+    lastTimestamp = lastTimestamp > 0 ? lastTimestamp : stateSince;
     if (DEBUG) printf("Last cap: %llu\n", lastTimestamp);
     return lastTimestamp;
+}
+
+int sendRequest(HTTP_INFO* hi) {
+    int return_code;
+    if (DEBUG) printf("req: %s\n\n", data);
+
+    return_code = http_put(hi, PUT_SIGNALS_DATA_ENDPOINT, data, response, sizeof(response));
+
+    if (DEBUG) printf("Status: %d\n", return_code);
+    if (DEBUG) printf("return body: %s \n", response);
+
+    return return_code;
+}
+
+void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult_t* result) {
+    int offset = 0;
+    data[offset++] = '[';
+
+    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 53, timestamp, result->u_rms_avg[0]); // V1
+    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 56, timestamp, result->i_rms_avg[0]); // I1
+    if (PHASES == 3) {
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 54, timestamp, result->u_rms_avg[1]); // V2
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 57, timestamp, result->i_rms_avg[1]); // I2
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 55, timestamp, result->u_rms_avg[2]); // V3
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 58, timestamp, result->i_rms_avg[2]); // I3
+    }
+    data[offset - 1] = ']';
+    data[offset] = 0;
+}
+
+void prepareProfileData(int cid, int mid, time_t timestamp, MeterBasicResult_t* result) {
+    int offset = 0;
+    data[offset++] = '[';
+
+    offset += addDataToRequest(data+offset, cid, mid, 32, timestamp, ((float)result->eactive_plus_sum.value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 34, timestamp, ((float)result->eactive_minus_sum.value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 44, timestamp, ((float)result->eapparent_plus_sum.value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 46, timestamp, ((float)result->eapparent_minus_sum.value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 36, timestamp, ((float)result->ereactive_sum[0].value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 38, timestamp, ((float)result->ereactive_sum[1].value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 40, timestamp, ((float)result->ereactive_sum[2].value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 42, timestamp, ((float)result->ereactive_sum[3].value) / 1000.0 / 3600.0);
+
+    data[offset - 1] = ']';
+    data[offset] = 0;
 }
 
 void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long long current) {
     MeterBasicResult_t* result;
     time_t timestamp;
-    unsigned long long lastCap = getLastCap(hi, cid, mid);
-    unsigned long long tmp = lastCap;
+    unsigned long long tmp = lastCap / 1000;
     int res;
     msg_t msg;
     current -= current % 900;
@@ -161,7 +193,6 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
         msg.type = 1;
         memcpy(msg.o.raw, &diff, sizeof(unsigned int));
         if ((res = msgSend(oid->port, &msg)) < 0 || msg.o.io.err == -1) {
-            if (DEBUG) printf("Could not fill gap (-d %u)\n", diff);
             tmp += 900;
             continue;
         }
@@ -169,16 +200,23 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
         timestamp = *(time_t *)(msg.o.raw +
             sizeof(MeterBasicResult_t *));
 
-        if (timestamp <= lastCap) {
+        if (timestamp * 1000 <= lastCap) {
             if (DEBUG) printf("Timestamp in profile lower or equal to lastCap (-d %u)\n", diff);
             tmp += 900;
             continue;
         }
-        sendMeasurement(hi, cid, mid, 32, timestamp * 1000, ((float)result->eactive_plus_sum.value) / 1000.0 / 3600.0);
-        sendMeasurement(hi, cid, mid, 34, timestamp * 1000, ((float)result->eactive_minus_sum.value) / 1000.0 / 3600.0);
-        sendMeasurement(hi, cid, mid, 44, timestamp * 1000, ((float)result->eapparent_plus_sum.value) / 1000.0 / 3600.0);
-        sendMeasurement(hi, cid, mid, 46, timestamp * 1000, ((float)result->eapparent_minus_sum.value) / 1000.0 / 3600.0);
-        lastCap = timestamp;
+        prepareProfileData(cid, mid, timestamp * 1000, result);
+        res = sendRequest(hi);
+        if (res < 200 || res >= 300) {
+            http_close(hi);
+            res = http_open(hi);
+            if (res < 0) return;
+            res = sendRequest(hi);
+        }
+        if (res >= 200 && res < 300) {
+            lastCap = timestamp * 1000;
+        }
+
         tmp += 900;
     }
 }
@@ -252,6 +290,7 @@ int main(int argc, char **argv)
         res = http_open(&hi);
         sleep(5);
     }
+    lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
     sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
     http_close(&hi);
 
@@ -272,29 +311,18 @@ int main(int argc, char **argv)
             sleep(60);
             continue;
         }
-        // V1
-        result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 53, timestamp * 1000, result->u_rms_avg[0]);
-        // I1
-        if (result_code > -1)
-            result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 56, timestamp * 1000, result->i_rms_avg[0]);
-
-        if (PHASES == 3) {
-            // V2
-            if (result_code > -1)
-                result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 54, timestamp * 1000, result->u_rms_avg[1]);
-            // I2
-            if (result_code > -1)
-                result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 57, timestamp * 1000, result->i_rms_avg[1]);
-            // V3
-            if (result_code > -1)
-                result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 55, timestamp * 1000, result->u_rms_avg[2]);
-            // I3
-            if (result_code > -1)
-                result_code = sendMeasurement(&hi, sid.client_cid, sid.sensor_mid, 58, timestamp * 1000, result->i_rms_avg[2]);
+        prepareCurrentData(&sid, timestamp * 1000, result);
+        res = sendRequest(&hi);
+        if (res < 0) {
+            http_close(&hi);
+            sleep(60);
+            continue;
         }
+
         if (result_code > -1 && (timestamp / 60) % 15 == 1) {
             sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
         }
+
         http_close(&hi);
 
         if (DEBUG) printf("\n\nSleeping 1m...\n\n");
