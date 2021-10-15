@@ -15,6 +15,8 @@
 #include "config.h"
 #include <sys/socket.h>
 #include <sys/select.h>
+
+// TODO: fix building and remove this
 void test() {
     socket(0,0,0);
     select(0, 0, 0, 0, 0);
@@ -151,6 +153,7 @@ void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult
     int offset = 0;
     data[offset++] = '[';
 
+    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 103, timestamp, result->frequency); // freq
     offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 53, timestamp, result->u_rms_avg[0]); // V1
     offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 56, timestamp, result->i_rms_avg[0]); // I1
     if (PHASES == 3) {
@@ -207,7 +210,7 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
         }
         prepareProfileData(cid, mid, timestamp * 1000, result);
         res = sendRequest(hi);
-        if (res < 200 || res >= 300) {
+        if (res < 200) {
             http_close(hi);
             res = http_open(hi);
             if (res < 0) return;
@@ -234,7 +237,6 @@ int main(int argc, char **argv)
     struct sensorId sid;
     sid.client_cid = 0;
     sid.sensor_mid = 0;
-    int result_code;
 
     while (lookup("/dev/metersrv", NULL, &oid) < 0) {
         sleep(5);
@@ -319,7 +321,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (result_code > -1 && (timestamp / 60) % 15 == 1) {
+        if (res > -1 && (timestamp / 60) % 15 == 1) {
             sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
         }
 

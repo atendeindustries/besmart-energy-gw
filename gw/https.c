@@ -50,8 +50,8 @@ int http_setup(HTTP_INFO* hi) {
     if( ret != 0 )
     {
         // if (DEBUG) printf(" failed!  mbedtls_x509_crt_parse returned -0x%x\n\n", abs(ret));
-        return ret;
     }
+    return ret;
 }
 
 void http_destroy(HTTP_INFO* hi) {
