@@ -17,6 +17,11 @@
 #include <sys/select.h>
 
 // TODO: fix building and remove this
+#include <sys/msg.h>
+
+#include <imxrt-multi.h>
+
+
 void test() {
     socket(0,0,0);
     select(0, 0, 0, 0, 0);
@@ -35,6 +40,39 @@ struct sensorId {
     int client_cid;
     int sensor_mid;
 };
+
+static void modemReset(void)
+{
+	oid_t oid;
+	msg_t msg;
+	multi_i_t *imsg = NULL;
+
+	if (lookup("/dev/gpio4", NULL, &oid) < 0) {
+		fprintf(stderr, "usbacm_powerReset: lookup failed\n");
+		return;
+	}
+
+	msg.type = mtDevCtl;
+	msg.i.data = NULL;
+	msg.i.size = 0;
+	msg.o.data = NULL;
+	msg.o.size = 0;
+
+	imsg = (multi_i_t *)msg.i.raw;
+
+	imsg->id = oid.id;
+	imsg->gpio.type = gpio_set_port;
+	imsg->gpio.port.val = 0 << 18;
+	imsg->gpio.port.mask = 1 << 18;
+
+	msgSend(oid.port, &msg);
+	sleep(1);
+	imsg->gpio.port.val = 1 << 18;
+	msgSend(oid.port, &msg);
+
+	fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
+}
+
 
 time_t getTime(HTTP_INFO* hi) {
     int ret = -1;
@@ -310,6 +348,7 @@ int main(int argc, char **argv)
         res = http_open(&hi);
         if (res != 0) {
             http_close(&hi);
+            modemReset();
             sleep(60);
             continue;
         }
@@ -317,6 +356,7 @@ int main(int argc, char **argv)
         res = sendRequest(&hi);
         if (res < 0) {
             http_close(&hi);
+            modemReset();
             sleep(60);
             continue;
         }
