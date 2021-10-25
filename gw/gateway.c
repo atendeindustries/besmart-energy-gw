@@ -74,23 +74,33 @@ static void modemReset(void)
 }
 
 
-time_t getTime(HTTP_INFO* hi) {
-    int ret = -1;
-    http_set_host(hi, TIME_API_NAME, "80", 0);
-    http_set_token(hi, "");
+void reopen_connection(HTTP_INFO* hi) {
+    int ret;
     do {
+        http_close(hi);
         ret = http_open(hi);
-        if (ret != 0) http_close(hi);
-        sleep(5);
-    } while (ret != 0);
+        if (ret < 0) sleep(5);
+    } while (ret < 0);
+}
+
+void open_connection(HTTP_INFO* hi) {
+    int ret = http_open(hi);
+    if (ret < 0) {
+        reopen_connection(hi);
+    }
+}
+
+time_t getTime(HTTP_INFO* hi) {
+    int ret;
+    open_connection(hi);
 
     do {
-        ret = http_get(hi, "/api/timezone/Europe/Warsaw", response, sizeof(response));
+        ret = http_get(hi, "/api/time?unit=s", response, sizeof(response));
         if (ret < 200 || ret >= 400) sleep(5);
+        if (ret < 0) reopen_connection(hi);
     } while (ret < 200 || ret >= 400);
     http_close(hi);
-    char* timeptr = strstr(response, "unixtime") + 10;
-    time_t time = strtoul(timeptr, NULL, 0);
+    time_t time = strtoul(response, NULL, 0);
     if (DEBUG) printf("Returned unixtimestamp: %llu.\n", time);
     return time;
 }
@@ -102,24 +112,22 @@ struct sensorId identify(HTTP_INFO* hi) {
     if (DEBUG) printf("%s - ", endpoint);
     fflush(stdout);
 
-    res = http_open(hi);
-    while (res != 0) {
-        http_close(hi);
-        res = http_open(hi);
-        sleep(5);
-    }
+    open_connection(hi);
     res = http_get(hi, endpoint, response, sizeof(response));
     http_close(hi);
     if (DEBUG) printf("%d\nresponse: %s\n", res, response);
 
     struct sensorId sid;
-    char* client_cid = strstr(response, "client_cid");
-    sid.client_cid = client_cid != NULL ? atoi(client_cid + 13) : 0;
-    char* sensor_mid = strstr(response, "sensor_mid");
-    sid.sensor_mid = sensor_mid != NULL ? atoi(sensor_mid + 13) : 0;
-    char* since = strstr(response, "since");
-    stateSince = since != NULL ? strtoull(since + 8, NULL, 0) : 0;
-    
+    if (res < 0) {
+        sid.client_cid = sid.sensor_mid = 0;
+    } else {
+        char* client_cid = strstr(response, "client_cid");
+        sid.client_cid = client_cid != NULL ? atoi(client_cid + 13) : 0;
+        char* sensor_mid = strstr(response, "sensor_mid");
+        sid.sensor_mid = sensor_mid != NULL ? atoi(sensor_mid + 13) : 0;
+        char* since = strstr(response, "since");
+        stateSince = since != NULL ? strtoull(since + 8, NULL, 0) : 0;
+    }
     return sid;
 }
 
@@ -149,7 +157,7 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
     sprintf(endpoint, "%s/%d.%d/signals/cap?signal_type_moid=32&signal_origin_id=1", SENSORS_API, cid, mid);
     ret = http_get(hi, endpoint, response, sizeof(response));
     while(ret < 0) {
-        sleep(1);
+        reopen_connection(hi);
         ret = http_get(hi, endpoint, response, sizeof(response));
     };
     
@@ -281,18 +289,17 @@ int main(int argc, char **argv)
     }
 
     HTTP_INFO hi;
-    timestamp = getTime(&hi);
-    if (timestamp > 1e9) {
-        msg.type = 7;
-        memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
-        if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-            printf("Could not set meter time (%d)", res);
-        }
-    }
 
     http_setup(&hi);
     http_set_host(&hi, API_NAME, PORT, 1);
     http_set_token(&hi, TOKEN);
+
+    timestamp = getTime(&hi);
+    msg.type = 7;
+    memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
+    if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+        printf("Could not set meter time (%d)", res);
+    }
 
     do {
         msg.type = 5;
@@ -324,12 +331,7 @@ int main(int argc, char **argv)
     if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
 
 
-    res = http_open(&hi);
-    while (res != 0) {
-        http_close(&hi);
-        res = http_open(&hi);
-        sleep(5);
-    }
+    open_connection(&hi);
     lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
     sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
     http_close(&hi);
