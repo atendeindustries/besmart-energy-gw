@@ -74,6 +74,36 @@ static void modemReset(void)
 }
 
 
+/* Implementation of hardware entropy source function for Phoenix-RTOS imxrt1064 platform*/
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
+{
+    msg_t msg = { 0 };
+    oid_t oid;
+    multi_i_t *imsg;
+    int ret;
+
+    if (lookup("/dev/trng", NULL, &oid) < 0) {
+        fprintf(stderr, "gateway: Fail to open entropy source\n");
+        return -1;
+    }
+
+    imsg = (multi_i_t *)msg.i.raw;
+    imsg->id = oid.id;
+    msg.type = mtRead;
+    msg.o.size = len;
+    msg.o.data = output;
+
+    if ((ret = msgSend(oid.port, &msg)) < 0) {
+        fprintf(stderr, "gateway: Fail to retrieve entropy source\n");
+        return -1;
+    }
+
+    *olen = len;
+
+    return 0;
+}
+
+
 void reopen_connection(HTTP_INFO* hi) {
     int ret;
     do {
