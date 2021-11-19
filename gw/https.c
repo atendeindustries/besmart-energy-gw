@@ -4,7 +4,7 @@
 #include "config.h"
 #include "https.h"
 #include "ca_cert.h"
-#define BUFFER_SIZE 1280
+#define BUFFER_SIZE 1600
 #define GET_TEMPLATE "GET %s HTTP/1.1\r\n"\
                      "User-Agent: %s\r\n"\
                      "Host: %s\r\n"\

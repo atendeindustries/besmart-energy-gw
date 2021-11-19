@@ -28,7 +28,7 @@ void test() {
 }
 
 static char endpoint[128];
-static char data[150*8];
+static char data[200*8];
 static char response[1280];
 static char SERIAL[18];
 static int PHASES;
