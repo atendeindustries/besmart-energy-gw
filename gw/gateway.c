@@ -280,7 +280,6 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
             sizeof(MeterBasicResult_t *));
 
         if (timestamp * 1000 <= lastCap) {
-            if (DEBUG) printf("Timestamp in profile lower or equal to lastCap (-d %u)\n", diff);
             tmp += 900;
             continue;
         }
@@ -310,6 +309,7 @@ int main(int argc, char **argv)
     MeterBasicResult_t *result;
     meter_state_t state;
     time_t timestamp;
+    time_t last_minute = NULL;
     struct sensorId sid;
     sid.client_cid = 0;
     sid.sensor_mid = 0;
@@ -376,6 +376,12 @@ int main(int argc, char **argv)
         result = *(MeterBasicResult_t **)msg.o.raw;
         timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
+        
+        if (timestamp / 60 <= last_minute) {
+            sleep(1);
+            continue;
+        }
+        last_minute = timestamp / 60;
 
         res = http_open(&hi);
         if (res != 0) {
@@ -393,14 +399,9 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (res > -1 && (timestamp / 60) % 15 == 1) {
-            sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
-        }
+        sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
 
         http_close(&hi);
-
-        if (DEBUG) printf("\n\nSleeping 1m...\n\n");
-        sleep(60);
     }
     http_destroy(&hi);
     return 0;
