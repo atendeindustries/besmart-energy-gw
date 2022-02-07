@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Atende Industries
+ * Copyright 2022 Atende Industries
  */
 
 #include <time.h>
@@ -15,17 +15,19 @@
 #include "config.h"
 #include <sys/socket.h>
 #include <sys/select.h>
-
-// TODO: fix building and remove this
 #include <sys/msg.h>
 
 #include <imxrt-multi.h>
 
 
+// TODO: fix building and remove this
 void test() {
     socket(0,0,0);
     select(0, 0, 0, 0, 0);
 }
+
+const int CURRENT_RATIO = 1;
+const int VOLTAGE_RATIO = 1;
 
 static char endpoint[128];
 static char data[200*8];
@@ -230,13 +232,13 @@ void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult
     data[offset++] = '[';
 
     offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 103, timestamp, result->frequency); // freq
-    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 53, timestamp, result->u_rms_avg[0]); // V1
-    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 56, timestamp, result->i_rms_avg[0]); // I1
+    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 53, timestamp, result->u_rms_avg[0] * VOLTAGE_RATIO); // V1
+    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 56, timestamp, result->i_rms_avg[0] * CURRENT_RATIO); // I1
     if (PHASES == 3) {
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 54, timestamp, result->u_rms_avg[1]); // V2
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 57, timestamp, result->i_rms_avg[1]); // I2
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 55, timestamp, result->u_rms_avg[2]); // V3
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 58, timestamp, result->i_rms_avg[2]); // I3
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 54, timestamp, result->u_rms_avg[1] * VOLTAGE_RATIO); // V2
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 57, timestamp, result->i_rms_avg[1] * CURRENT_RATIO); // I2
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 55, timestamp, result->u_rms_avg[2] * VOLTAGE_RATIO); // V3
+        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 58, timestamp, result->i_rms_avg[2] * CURRENT_RATIO); // I3
     }
     data[offset - 1] = ']';
     data[offset] = 0;
@@ -246,14 +248,22 @@ void prepareProfileData(int cid, int mid, time_t timestamp, MeterBasicResult_t* 
     int offset = 0;
     data[offset++] = '[';
 
-    offset += addDataToRequest(data+offset, cid, mid, 32, timestamp, ((float)result->eactive_plus_sum.value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 34, timestamp, ((float)result->eactive_minus_sum.value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 44, timestamp, ((float)result->eapparent_plus_sum.value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 46, timestamp, ((float)result->eapparent_minus_sum.value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 36, timestamp, ((float)result->ereactive_sum[0].value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 38, timestamp, ((float)result->ereactive_sum[1].value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 40, timestamp, ((float)result->ereactive_sum[2].value) / 1000.0 / 3600.0);
-    offset += addDataToRequest(data+offset, cid, mid, 42, timestamp, ((float)result->ereactive_sum[3].value) / 1000.0 / 3600.0);
+    offset += addDataToRequest(data+offset, cid, mid, 32, timestamp,
+        ((float)result->eactive_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 34, timestamp,
+        ((float)result->eactive_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 44, timestamp,
+        ((float)result->eapparent_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 46, timestamp,
+        ((float)result->eapparent_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 36, timestamp,
+        ((float)result->ereactive_sum[0].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 38, timestamp,
+        ((float)result->ereactive_sum[1].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 40, timestamp,
+        ((float)result->ereactive_sum[2].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+    offset += addDataToRequest(data+offset, cid, mid, 42, timestamp,
+        ((float)result->ereactive_sum[3].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
 
     data[offset - 1] = ']';
     data[offset] = 0;
