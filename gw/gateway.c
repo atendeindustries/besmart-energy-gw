@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Atende Industries
+ * Copyright 2022 Atende Industries
  */
 
 #include <time.h>
@@ -26,7 +26,7 @@ void test() {
     select(0, 0, 0, 0, 0);
 }
 
-const int CURRENT_RATIO = 20;
+const int CURRENT_RATIO = 1;
 const int VOLTAGE_RATIO = 1;
 
 static char endpoint[128];
