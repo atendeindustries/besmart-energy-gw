@@ -26,17 +26,18 @@ void test() {
     select(0, 0, 0, 0, 0);
 }
 
-const int CURRENT_RATIO = 1;
-const int VOLTAGE_RATIO = 1;
-
 static char endpoint[128];
-static char data[200*8];
+static char data[230*16];
+unsigned int dataOffset = 0;
 static char response[1280];
 static char SERIAL[18];
 static int PHASES;
 static char METER_TYPE_NAME[6];
 static unsigned long long stateSince;
 static unsigned long long lastCap;
+static int decimal;
+static int fraction;
+static int fractionLen;
 
 struct sensorId {
     int client_cid;
@@ -163,24 +164,48 @@ struct sensorId identify(HTTP_INFO* hi) {
     return sid;
 }
 
-int addDataToRequest(char* data, int cid, int mid, int moid, time_t timestamp, float value) {
-    return snprintf(data, 256,
+int count_digits_of_integer(int integer) {
+    int count = 1;
+    int limit;
+
+    while (1) {
+        limit = pow(10, count);
+        if (integer < limit) break;
+        count++;
+    }
+
+    return count;
+}
+
+void addDataToRequest(int cid, int mid, int moid, time_t timestamp, double value) {
+    decimal = (int)value;
+    fraction = (int)round((value - ((int)value)) * 100000000);
+    fractionLen =  8 - count_digits_of_integer(fraction);
+
+    dataOffset += snprintf(data + dataOffset, 140,
         "{"
         "\"client_cid\":%d,"
         "\"sensor_mid\":%d,"
         "\"signal_type_moid\":%d,"
         "\"data\":{"
         "\"time\":[%llu],"
-        "\"value\":[%f],"
-        "\"type\":[\"DBL\"],"
-        "\"origin\":[1]"
-        "}"
-        "},",
+        "\"value\":[%d.",
         cid,
         mid,
         moid,
         timestamp,
-        value
+        decimal
+    );
+    while (fractionLen-- != 0) {
+        dataOffset += snprintf(data + dataOffset, 2, "0");
+    }
+    dataOffset += snprintf(data + dataOffset, 80,
+        "%d],"
+        "\"type\":[\"DBL\"],"
+        "\"origin\":[1]"
+        "}"
+        "},",
+        fraction
     );
 }
 
@@ -192,7 +217,7 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
         reopen_connection(hi);
         ret = http_get(hi, endpoint, response, sizeof(response));
     };
-    
+
     char* p1 = strchr(response, '{');
     char* p2 = strchr(response, '}');
     unsigned long long lastTimestamp = 0;
@@ -200,7 +225,7 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
         *p2 = 0;
         if (strstr(response, "signal_origin_id\": 1") != NULL &&
             strstr(response, "signal_type_moid\": 32") != NULL) {
-            
+
             p1 = strstr(response, "cap_max\":") + 10;
             lastTimestamp = strtoull(p1, NULL, 0);
             break;
@@ -221,52 +246,55 @@ int sendRequest(HTTP_INFO* hi) {
 
     return_code = http_put(hi, PUT_SIGNALS_DATA_ENDPOINT, data, response, sizeof(response));
 
-    if (DEBUG) printf("Status: %d\n", return_code);
-    if (DEBUG) printf("return body: %s \n", response);
+    if (DEBUG || return_code < 200 || return_code >= 300) {
+        if (!DEBUG) printf("req: %s\n\n", data);
+        printf("status: %d\n", return_code);
+        printf("return body: %s \n", response);
+    }
 
     return return_code;
 }
 
 void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult_t* result) {
-    int offset = 0;
-    data[offset++] = '[';
-
-    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 103, timestamp, result->frequency); // freq
-    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 53, timestamp, result->u_rms_avg[0] * VOLTAGE_RATIO); // V1
-    offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 56, timestamp, result->i_rms_avg[0] * CURRENT_RATIO); // I1
+    addDataToRequest(sid->client_cid, sid->sensor_mid, 103, timestamp, (double)(result->frequency)); // freq
+    addDataToRequest(sid->client_cid, sid->sensor_mid, 53, timestamp, (double)(result->u_rms_avg[0] * VOLTAGE_RATIO)); // V1
+    addDataToRequest(sid->client_cid, sid->sensor_mid, 56, timestamp, (double)(result->i_rms_avg[0] * CURRENT_RATIO)); // I1
     if (PHASES == 3) {
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 54, timestamp, result->u_rms_avg[1] * VOLTAGE_RATIO); // V2
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 57, timestamp, result->i_rms_avg[1] * CURRENT_RATIO); // I2
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 55, timestamp, result->u_rms_avg[2] * VOLTAGE_RATIO); // V3
-        offset += addDataToRequest(data+offset, sid->client_cid, sid->sensor_mid, 58, timestamp, result->i_rms_avg[2] * CURRENT_RATIO); // I3
+        addDataToRequest(sid->client_cid, sid->sensor_mid, 54, timestamp, (double)(result->u_rms_avg[1] * VOLTAGE_RATIO)); // V2
+        addDataToRequest(sid->client_cid, sid->sensor_mid, 57, timestamp, (double)(result->i_rms_avg[1] * CURRENT_RATIO)); // I2
+        addDataToRequest(sid->client_cid, sid->sensor_mid, 55, timestamp, (double)(result->u_rms_avg[2] * VOLTAGE_RATIO)); // V3
+        addDataToRequest(sid->client_cid, sid->sensor_mid, 58, timestamp, (double)(result->i_rms_avg[2] * CURRENT_RATIO)); // I3
     }
-    data[offset - 1] = ']';
-    data[offset] = 0;
 }
 
-void prepareProfileData(int cid, int mid, time_t timestamp, MeterBasicResult_t* result) {
-    int offset = 0;
-    data[offset++] = '[';
+void prepareEnergyData(int cid, int mid, time_t timestamp, MeterBasicResult_t* result) {
+    addDataToRequest(cid, mid, 32, timestamp,
+        (double)(((double)result->eactive_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 34, timestamp,
+        (double)(((double)result->eactive_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 44, timestamp,
+        (double)(((double)result->eapparent_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 46, timestamp,
+        (double)(((double)result->eapparent_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 36, timestamp,
+        (double)(((double)result->ereactive_sum[0].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 38, timestamp,
+        (double)(((double)result->ereactive_sum[1].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 40, timestamp,
+        (double)(((double)result->ereactive_sum[2].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+    addDataToRequest(cid, mid, 42, timestamp,
+        (double)(((double)result->ereactive_sum[3].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
+}
 
-    offset += addDataToRequest(data+offset, cid, mid, 32, timestamp,
-        ((float)result->eactive_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 34, timestamp,
-        ((float)result->eactive_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 44, timestamp,
-        ((float)result->eapparent_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 46, timestamp,
-        ((float)result->eapparent_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 36, timestamp,
-        ((float)result->ereactive_sum[0].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 38, timestamp,
-        ((float)result->ereactive_sum[1].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 40, timestamp,
-        ((float)result->ereactive_sum[2].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
-    offset += addDataToRequest(data+offset, cid, mid, 42, timestamp,
-        ((float)result->ereactive_sum[3].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO);
+void startDataBlock() {
+    dataOffset = 0;
+    data[dataOffset++] = '[';
+}
 
-    data[offset - 1] = ']';
-    data[offset] = 0;
+void endDataBlock() {
+    data[dataOffset - 1] = ']';
+    data[dataOffset] = 0;
+    dataOffset = 0;
 }
 
 void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long long current) {
@@ -275,14 +303,17 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
     unsigned long long tmp = lastCap / 1000;
     int res;
     msg_t msg;
-    current -= current % 900;
-    tmp -= tmp % 900;
+    unsigned int diff;
+
+    current -= current % ((int)METER_PROFILE_FREQ_S);
+    tmp -= tmp % ((int)METER_PROFILE_FREQ_S);
+
     while (tmp <= current) {
-        unsigned int diff = (int)(current - tmp) / 900;
+        diff = (current - tmp) / ((int)METER_PROFILE_FREQ_S);
         msg.type = 1;
         memcpy(msg.o.raw, &diff, sizeof(unsigned int));
         if ((res = msgSend(oid->port, &msg)) < 0 || msg.o.io.err == -1) {
-            tmp += 900;
+            tmp += (int)METER_PROFILE_FREQ_S;
             continue;
         }
         result = *(MeterBasicResult_t **)msg.o.raw;
@@ -291,23 +322,33 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
 
         if (timestamp * 1000 <= lastCap) {
             if (DEBUG) printf("Timestamp in profile lower or equal to lastCap (-d %u)\n", diff);
-            tmp += 900;
+            tmp += (int)METER_PROFILE_FREQ_S;
             continue;
         }
-        prepareProfileData(cid, mid, timestamp * 1000, result);
-        res = sendRequest(hi);
-        if (res < 200) {
-            http_close(hi);
-            res = http_open(hi);
-            if (res < 0) return;
-            res = sendRequest(hi);
-        }
-        if (res >= 200 && res < 300) {
-            lastCap = timestamp * 1000;
-        }
+        startDataBlock();
+        prepareEnergyData(cid, mid, timestamp * 1000, result);
+        endDataBlock();
+        sendData(hi, timestamp, &res);
 
-        tmp += 900;
+        tmp += (int)METER_PROFILE_FREQ_S;
     }
+}
+
+void sendData(HTTP_INFO* hi, time_t timestamp, int *res) {
+    *res = sendRequest(hi);
+    if (*res < 200) {
+        http_close(hi);
+        *res = http_open(hi);
+        if (*res < 0) return;
+        *res = sendRequest(hi);
+    }
+    if (*res >= 200 && *res < 300) {
+        lastCap = timestamp * 1000;
+    }
+}
+
+void calculateWaitUS(struct timespec t1, struct timespec t2, unsigned int freq, long long *diff) {
+    *diff = (freq * 1000000 - (long long)((t2.tv_nsec - t1.tv_nsec) / 1000) - (long long)(t2.tv_sec - t1.tv_sec) * 1000000);
 }
 
 int main(int argc, char **argv)
@@ -323,6 +364,16 @@ int main(int argc, char **argv)
     struct sensorId sid;
     sid.client_cid = 0;
     sid.sensor_mid = 0;
+    unsigned int freq = 1;
+	struct timespec start, finish;
+    long long wait_us;
+    bool connectionOpened = 0;
+
+    // Find highest common frequency
+    for(unsigned int gcd = 1; gcd <= ENERGY_FREQ_S && gcd <= CURRENT_FREQ_S; ++gcd) {
+        if (ENERGY_FREQ_S % gcd == 0 && CURRENT_FREQ_S % gcd == 0)
+            freq = gcd;
+    }
 
     while (lookup("/dev/metersrv", NULL, &oid) < 0) {
         sleep(5);
@@ -370,47 +421,85 @@ int main(int argc, char **argv)
 
     if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
 
-
     open_connection(&hi);
     lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
     sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
     http_close(&hi);
 
     while (1) {
+	    clock_gettime(CLOCK_REALTIME, &start);
+
+        if (!connectionOpened) {
+            res = http_open(&hi);
+            if (res != 0) {
+                http_close(&hi);
+                connectionOpened = 0;
+                modemReset();
+                sleep(60);
+                continue;
+            }
+            connectionOpened = 1;
+        }
+
         msg.type = 5;
         if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
             printf("Could not get status from metersrv (%d)", res);
-            sleep(60);
+            sleep(30);
             continue;
         }
         result = *(MeterBasicResult_t **)msg.o.raw;
         timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
-        res = http_open(&hi);
-        if (res != 0) {
-            http_close(&hi);
-            modemReset();
-            sleep(60);
-            continue;
-        }
-        prepareCurrentData(&sid, timestamp * 1000, result);
-        res = sendRequest(&hi);
-        if (res < 0) {
-            http_close(&hi);
-            modemReset();
-            sleep(60);
-            continue;
-        }
-
-        if (res > -1 && (timestamp / 60) % 15 == 1) {
+        if (timestamp - (int)(lastCap / 1000) > (int)METER_PROFILE_FREQ_S) {
             sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
         }
 
-        http_close(&hi);
+        if (timestamp % ((int)CURRENT_FREQ_S) == 0 || timestamp % ((int)ENERGY_FREQ_S) == 0) {
+            startDataBlock();
 
-        if (DEBUG) printf("\n\nSleeping 1m...\n\n");
-        sleep(60);
+            if (timestamp % ((int)CURRENT_FREQ_S) == 0) {
+                prepareCurrentData(&sid, timestamp * 1000, result);
+            }
+
+            if (timestamp % ((int)ENERGY_FREQ_S) == 0) {
+                msg.type = 8;
+                if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+                    printf("Could not get data from metersrv (%d)", res);
+                    sleep(30);
+                    continue;
+                }
+                result = *(MeterBasicResult_t **)msg.o.raw;
+
+                prepareEnergyData(sid.client_cid, sid.sensor_mid, timestamp * 1000, result);
+            }
+
+            endDataBlock();
+
+            sendData(&hi, timestamp, &res);
+            if (res < 0) {
+                http_close(&hi);
+                connectionOpened = 0;
+                modemReset();
+                sleep(60);
+                continue;
+            }
+        }
+
+	    clock_gettime(CLOCK_REALTIME, &finish);
+
+        // Wait to get desired frequency and align to closest time
+        calculateWaitUS(start, finish, freq, &wait_us);
+        wait_us = wait_us - (timestamp % freq) * 1000000;
+
+        if (wait_us > 0) {
+            if (DEBUG) printf("\nSleeping %dms...\n", (int)(wait_us / 1000));
+
+            usleep(wait_us);
+        }
+        else {
+            if (DEBUG) printf("\nNot sleeping.\n");
+        }
     }
     http_destroy(&hi);
     return 0;
