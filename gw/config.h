@@ -19,6 +19,10 @@
 #define ENERGY_FREQ_S 15 * 60
 #define CURRENT_FREQ_S 60
 
+// sync time
+#define SYNC_TIME_FREQ_MIN 60 * 24
+#define SYNC_TIME_TH_S 10
+
 // ------
 
 #endif

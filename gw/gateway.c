@@ -38,6 +38,7 @@ static unsigned long long lastCap;
 static int decimal;
 static int fraction;
 static int fractionLen;
+static bool connectionOpened = 0;
 
 struct sensorId {
     int client_cid;
@@ -76,7 +77,6 @@ static void modemReset(void)
 	fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
 }
 
-
 /* Implementation of hardware entropy source function for Phoenix-RTOS imxrt1064 platform*/
 int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
 {
@@ -106,33 +106,54 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
     return 0;
 }
 
-
-void reopen_connection(HTTP_INFO* hi) {
+void reOpenConnection(HTTP_INFO* hi) {
     int ret;
+    unsigned int count = 1;
+
+    connectionOpened = 0;
+
     do {
         http_close(hi);
+        if (count % 10 == 0) {
+            modemReset();
+            sleep(30);
+        }
         ret = http_open(hi);
         if (ret < 0) sleep(5);
+        count++;
     } while (ret < 0);
+
+    connectionOpened = 1;
 }
 
-void open_connection(HTTP_INFO* hi) {
-    int ret = http_open(hi);
-    if (ret < 0) {
-        reopen_connection(hi);
+void openConnection(HTTP_INFO* hi) {
+    if (!connectionOpened) {
+        int ret = http_open(hi);
+
+        if (ret < 0) {
+            reOpenConnection(hi);
+        }
+        else {
+            connectionOpened = 1;
+        }
+    }
+}
+
+void closeConnection(HTTP_INFO* hi) {
+    if (connectionOpened) {
+        http_close(hi);
+        connectionOpened = 0;
     }
 }
 
 time_t getTime(HTTP_INFO* hi) {
     int ret;
-    open_connection(hi);
 
     do {
         ret = http_get(hi, "/api/time?unit=s", response, sizeof(response));
         if (ret < 200 || ret >= 400) sleep(5);
-        if (ret < 0) reopen_connection(hi);
+        if (ret < 0) reOpenConnection(hi);
     } while (ret < 200 || ret >= 400);
-    http_close(hi);
     time_t time = strtoul(response, NULL, 0);
     if (DEBUG) printf("Returned unixtimestamp: %llu.\n", time);
     return time;
@@ -145,15 +166,15 @@ struct sensorId identify(HTTP_INFO* hi) {
     if (DEBUG) printf("%s - ", endpoint);
     fflush(stdout);
 
-    open_connection(hi);
     res = http_get(hi, endpoint, response, sizeof(response));
-    http_close(hi);
+    if (res < 0) reOpenConnection(hi);
     if (DEBUG) printf("%d\nresponse: %s\n", res, response);
 
     struct sensorId sid;
     if (res < 0) {
         sid.client_cid = sid.sensor_mid = 0;
-    } else {
+    } 
+    else {
         char* client_cid = strstr(response, "client_cid");
         sid.client_cid = client_cid != NULL ? atoi(client_cid + 13) : 0;
         char* sensor_mid = strstr(response, "sensor_mid");
@@ -214,7 +235,7 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
     sprintf(endpoint, "%s/%d.%d/signals/cap?signal_type_moid=32&signal_origin_id=1", SENSORS_API, cid, mid);
     ret = http_get(hi, endpoint, response, sizeof(response));
     while(ret < 0) {
-        reopen_connection(hi);
+        reOpenConnection(hi);
         ret = http_get(hi, endpoint, response, sizeof(response));
     };
 
@@ -229,7 +250,8 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
             p1 = strstr(response, "cap_max\":") + 10;
             lastTimestamp = strtoull(p1, NULL, 0);
             break;
-        } else {
+        } 
+        else {
             p1 = p2 + 1;
             p2 = strchr(p1, '}');
             if (p2 == NULL) p1 = NULL;
@@ -334,20 +356,18 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
     }
 }
 
-void sendData(HTTP_INFO* hi, time_t timestamp, int *res) {
+void sendData(HTTP_INFO* hi, time_t timestamp, int* res) {
     *res = sendRequest(hi);
     if (*res < 200) {
-        http_close(hi);
-        *res = http_open(hi);
-        if (*res < 0) return;
-        *res = sendRequest(hi);
+        reOpenConnection(hi);
+        return;
     }
-    if (*res >= 200 && *res < 300) {
+    else if (*res >= 200 && *res < 300) {
         lastCap = timestamp * 1000;
     }
 }
 
-void calculateWaitUS(struct timespec t1, struct timespec t2, unsigned int freq, long long *diff) {
+void calculateWaitUS(struct timespec t1, struct timespec t2, unsigned int freq, long long* diff) {
     *diff = (freq * 1000000 - (long long)((t2.tv_nsec - t1.tv_nsec) / 1000) - (long long)(t2.tv_sec - t1.tv_sec) * 1000000);
 }
 
@@ -361,13 +381,14 @@ int main(int argc, char **argv)
     MeterBasicResult_t *result;
     meter_state_t state;
     time_t timestamp;
+    time_t newTimestamp;
     struct sensorId sid;
     sid.client_cid = 0;
     sid.sensor_mid = 0;
     unsigned int freq = 1;
 	struct timespec start, finish;
     long long wait_us;
-    bool connectionOpened = 0;
+    long long lastTimeSync = 0;
 
     // Find highest common frequency
     for(unsigned int gcd = 1; gcd <= ENERGY_FREQ_S && gcd <= CURRENT_FREQ_S; ++gcd) {
@@ -385,17 +406,22 @@ int main(int argc, char **argv)
     http_set_host(&hi, API_NAME, PORT, 1);
     http_set_token(&hi, TOKEN);
 
+    openConnection(&hi);
     timestamp = getTime(&hi);
+
     msg.type = 7;
     memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
     if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-        printf("Could not set meter time (%d)", res);
+        printf("Could not set meter time (%d)\n", res);
+    } 
+    else {
+        lastTimeSync = (long long)timestamp;
     }
 
     do {
         msg.type = 5;
         if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-            printf("Could not get status from metersrv (%d)", res);
+            printf("Could not get status from metersrv (%d)\n", res);
             sleep(5);
             continue;
         }
@@ -420,36 +446,53 @@ int main(int argc, char **argv)
     } while (sid.client_cid == 0 && sid.sensor_mid == 0);
 
     if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
-
-    open_connection(&hi);
+\
     lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
     sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
-    http_close(&hi);
 
     while (1) {
 	    clock_gettime(CLOCK_REALTIME, &start);
 
-        if (!connectionOpened) {
-            res = http_open(&hi);
-            if (res != 0) {
-                http_close(&hi);
-                connectionOpened = 0;
-                modemReset();
-                sleep(60);
-                continue;
-            }
-            connectionOpened = 1;
-        }
+        openConnection(&hi);
 
         msg.type = 5;
         if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-            printf("Could not get status from metersrv (%d)", res);
+            printf("Could not get status from metersrv (%d)\n", res);
             sleep(30);
             continue;
         }
         result = *(MeterBasicResult_t **)msg.o.raw;
         timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
+
+        if ((long long)timestamp - lastTimeSync >= ((int)SYNC_TIME_FREQ_MIN) * 60) {
+            if (DEBUG) printf("Checking time sync\n");
+            newTimestamp = getTime(&hi);
+
+            msg.type = 5;
+            if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+                printf("Could not get status from metersrv (%d)\n", res);
+                sleep(30);
+                continue;
+            }
+            result = *(MeterBasicResult_t **)msg.o.raw;
+            timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
+                sizeof(MeterConf_t *) + sizeof(meter_state_t));
+
+            if (abs((long long)newTimestamp - (long long)timestamp) >= (int)SYNC_TIME_TH_S) {
+                if (DEBUG) printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
+                msg.type = 7;
+                memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
+            
+                if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+                    printf("Could not set meter time (%d)\n", res);
+                }
+                else {
+                    timestamp = newTimestamp;
+                }
+            }
+            lastTimeSync = (long long)timestamp;
+        }
 
         if (timestamp - (int)(lastCap / 1000) > (int)METER_PROFILE_FREQ_S) {
             sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
@@ -465,7 +508,7 @@ int main(int argc, char **argv)
             if (timestamp % ((int)ENERGY_FREQ_S) == 0) {
                 msg.type = 8;
                 if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-                    printf("Could not get data from metersrv (%d)", res);
+                    printf("Could not get data from metersrv (%d)\n", res);
                     sleep(30);
                     continue;
                 }
@@ -477,13 +520,6 @@ int main(int argc, char **argv)
             endDataBlock();
 
             sendData(&hi, timestamp, &res);
-            if (res < 0) {
-                http_close(&hi);
-                connectionOpened = 0;
-                modemReset();
-                sleep(60);
-                continue;
-            }
         }
 
 	    clock_gettime(CLOCK_REALTIME, &finish);
