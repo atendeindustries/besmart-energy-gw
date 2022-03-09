@@ -27,7 +27,7 @@ void test() {
 }
 
 static char endpoint[128];
-static char data[230*16];
+static char data[230 * 16];
 unsigned int dataOffset = 0;
 static char response[1280];
 static char SERIAL[18];
@@ -106,7 +106,7 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
     return 0;
 }
 
-void reOpenConnection(HTTP_INFO* hi) {
+void reOpenConnection(HTTP_INFO *hi) {
     int ret;
     unsigned int count = 1;
 
@@ -126,7 +126,7 @@ void reOpenConnection(HTTP_INFO* hi) {
     connectionOpened = 1;
 }
 
-void openConnection(HTTP_INFO* hi) {
+void openConnection(HTTP_INFO *hi) {
     if (!connectionOpened) {
         int ret = http_open(hi);
 
@@ -139,14 +139,14 @@ void openConnection(HTTP_INFO* hi) {
     }
 }
 
-void closeConnection(HTTP_INFO* hi) {
+void closeConnection(HTTP_INFO *hi) {
     if (connectionOpened) {
         http_close(hi);
         connectionOpened = 0;
     }
 }
 
-time_t getTime(HTTP_INFO* hi) {
+time_t getTime(HTTP_INFO *hi) {
     int ret;
 
     do {
@@ -159,7 +159,7 @@ time_t getTime(HTTP_INFO* hi) {
     return time;
 }
 
-struct sensorId identify(HTTP_INFO* hi) {
+struct sensorId identify(HTTP_INFO *hi) {
     int res;
 
     sprintf(endpoint, "%s?meter_dev=%s&meter_type_name=%s", FIND_STATE_ENDPOINT, SERIAL, METER_TYPE_NAME);
@@ -175,11 +175,11 @@ struct sensorId identify(HTTP_INFO* hi) {
         sid.client_cid = sid.sensor_mid = 0;
     } 
     else {
-        char* client_cid = strstr(response, "client_cid");
+        char *client_cid = strstr(response, "client_cid");
         sid.client_cid = client_cid != NULL ? atoi(client_cid + 13) : 0;
-        char* sensor_mid = strstr(response, "sensor_mid");
+        char *sensor_mid = strstr(response, "sensor_mid");
         sid.sensor_mid = sensor_mid != NULL ? atoi(sensor_mid + 13) : 0;
-        char* since = strstr(response, "since");
+        char *since = strstr(response, "since");
         stateSince = since != NULL ? strtoull(since + 8, NULL, 0) : 0;
     }
     return sid;
@@ -230,7 +230,7 @@ void addDataToRequest(int cid, int mid, int moid, time_t timestamp, double value
     );
 }
 
-unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
+unsigned long long getLastCap(HTTP_INFO *hi, int cid, int mid) {
     int ret;
     sprintf(endpoint, "%s/%d.%d/signals/cap?signal_type_moid=32&signal_origin_id=1", SENSORS_API, cid, mid);
     ret = http_get(hi, endpoint, response, sizeof(response));
@@ -239,8 +239,8 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
         ret = http_get(hi, endpoint, response, sizeof(response));
     };
 
-    char* p1 = strchr(response, '{');
-    char* p2 = strchr(response, '}');
+    char *p1 = strchr(response, '{');
+    char *p2 = strchr(response, '}');
     unsigned long long lastTimestamp = 0;
     while (lastTimestamp == 0 && p1 != NULL) {
         *p2 = 0;
@@ -262,7 +262,7 @@ unsigned long long getLastCap(HTTP_INFO* hi, int cid, int mid) {
     return lastTimestamp;
 }
 
-int sendRequest(HTTP_INFO* hi) {
+int sendRequest(HTTP_INFO *hi) {
     int return_code;
     if (DEBUG) printf("req: %s\n\n", data);
 
@@ -277,7 +277,7 @@ int sendRequest(HTTP_INFO* hi) {
     return return_code;
 }
 
-void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult_t* result) {
+void prepareCurrentData(struct sensorId *sid, time_t timestamp, MeterBasicResult_t *result) {
     addDataToRequest(sid->client_cid, sid->sensor_mid, 103, timestamp, (double)(result->frequency)); // freq
     addDataToRequest(sid->client_cid, sid->sensor_mid, 53, timestamp, (double)(result->u_rms_avg[0] * VOLTAGE_RATIO)); // V1
     addDataToRequest(sid->client_cid, sid->sensor_mid, 56, timestamp, (double)(result->i_rms_avg[0] * CURRENT_RATIO)); // I1
@@ -289,7 +289,7 @@ void prepareCurrentData(struct sensorId* sid, time_t timestamp, MeterBasicResult
     }
 }
 
-void prepareEnergyData(int cid, int mid, time_t timestamp, MeterBasicResult_t* result) {
+void prepareEnergyData(int cid, int mid, time_t timestamp, MeterBasicResult_t *result) {
     addDataToRequest(cid, mid, 32, timestamp,
         (double)(((double)result->eactive_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
     addDataToRequest(cid, mid, 34, timestamp,
@@ -319,8 +319,8 @@ void endDataBlock() {
     dataOffset = 0;
 }
 
-void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long long current) {
-    MeterBasicResult_t* result;
+void sendProfileData(HTTP_INFO *hi, oid_t *oid, int cid, int mid, unsigned long long current) {
+    MeterBasicResult_t *result;
     time_t timestamp;
     unsigned long long tmp = lastCap / 1000;
     int res;
@@ -356,7 +356,7 @@ void sendProfileData(HTTP_INFO* hi, oid_t* oid, int cid, int mid, unsigned long 
     }
 }
 
-void sendData(HTTP_INFO* hi, time_t timestamp, int* res) {
+void sendData(HTTP_INFO *hi, time_t timestamp, int *res) {
     *res = sendRequest(hi);
     if (*res < 200) {
         reOpenConnection(hi);
@@ -367,7 +367,7 @@ void sendData(HTTP_INFO* hi, time_t timestamp, int* res) {
     }
 }
 
-void calculateWaitUS(struct timespec t1, struct timespec t2, unsigned int freq, long long* diff) {
+void calculateWaitUS(struct timespec t1, struct timespec t2, unsigned int freq, long long *diff) {
     *diff = (freq * 1000000 - (long long)((t2.tv_nsec - t1.tv_nsec) / 1000) - (long long)(t2.tv_sec - t1.tv_sec) * 1000000);
 }
 
@@ -386,7 +386,8 @@ int main(int argc, char **argv)
     sid.client_cid = 0;
     sid.sensor_mid = 0;
     unsigned int freq = 1;
-	struct timespec start, finish;
+	struct timespec start;
+    struct timespec finish;
     long long wait_us;
     long long lastTimeSync = 0;
 
@@ -480,9 +481,9 @@ int main(int argc, char **argv)
                 sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
             if (abs((long long)newTimestamp - (long long)timestamp) >= (int)SYNC_TIME_TH_S) {
-                if (DEBUG) printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
+                printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
                 msg.type = 7;
-                memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
+                memcpy(msg.o.raw, &newTimestamp, sizeof(newTimestamp));
             
                 if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
                     printf("Could not set meter time (%d)\n", res);
