@@ -20,8 +20,8 @@
 #define CURRENT_FREQ_S 60
 
 // sync time
-#define SYNC_TIME_FREQ_MIN 60 * 24
-#define SYNC_TIME_TH_S 10
+#define SYNC_TIME_FREQ_MIN 12 * 60
+#define SYNC_TIME_TH_S 5
 
 // ------
 
