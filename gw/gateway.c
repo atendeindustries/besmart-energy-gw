@@ -481,7 +481,7 @@ int main(int argc, char **argv)
                 sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
             if (abs((long long)newTimestamp - (long long)timestamp) >= (int)SYNC_TIME_TH_S) {
-                printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
+                if (DEBUG) printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
                 msg.type = 7;
                 memcpy(msg.o.raw, &newTimestamp, sizeof(newTimestamp));
             
