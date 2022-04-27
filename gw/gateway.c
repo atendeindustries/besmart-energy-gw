@@ -16,12 +16,13 @@
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/msg.h>
+#include <math.h>
 
 #include <imxrt-multi.h>
 
 
 // TODO: fix building and remove this
-void test() {
+void test(void) {
     socket(0,0,0);
     select(0, 0, 0, 0, 0);
 }
@@ -277,6 +278,17 @@ int sendRequest(HTTP_INFO *hi) {
     return return_code;
 }
 
+void sendData(HTTP_INFO *hi, time_t timestamp, int *res) {
+    *res = sendRequest(hi);
+    if (*res < 200) {
+        reOpenConnection(hi);
+        return;
+    }
+    else if (*res >= 200 && *res < 300) {
+        lastCap = timestamp * 1000;
+    }
+}
+
 void prepareCurrentData(struct sensorId *sid, time_t timestamp, MeterBasicResult_t *result) {
     addDataToRequest(sid->client_cid, sid->sensor_mid, 103, timestamp, (double)(result->frequency)); // freq
     addDataToRequest(sid->client_cid, sid->sensor_mid, 53, timestamp, (double)(result->u_rms_avg[0] * VOLTAGE_RATIO)); // V1
@@ -308,12 +320,12 @@ void prepareEnergyData(int cid, int mid, time_t timestamp, MeterBasicResult_t *r
         (double)(((double)result->ereactive_sum[3].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
 }
 
-void startDataBlock() {
+void startDataBlock(void) {
     dataOffset = 0;
     data[dataOffset++] = '[';
 }
 
-void endDataBlock() {
+void endDataBlock(void) {
     data[dataOffset - 1] = ']';
     data[dataOffset] = 0;
     dataOffset = 0;
@@ -353,17 +365,6 @@ void sendProfileData(HTTP_INFO *hi, oid_t *oid, int cid, int mid, unsigned long 
         sendData(hi, timestamp, &res);
 
         tmp += (int)METER_PROFILE_FREQ_S;
-    }
-}
-
-void sendData(HTTP_INFO *hi, time_t timestamp, int *res) {
-    *res = sendRequest(hi);
-    if (*res < 200) {
-        reOpenConnection(hi);
-        return;
-    }
-    else if (*res >= 200 && *res < 300) {
-        lastCap = timestamp * 1000;
     }
 }
 
