@@ -4,7 +4,6 @@ MAKE = make
 
 CC = $(CROSS)gcc
 LD = $(CROSS)ld
-STRIP = $(CROSS)strip
 
 ROOT_DIR = $(CURDIR)
 MBEDTLS = $(ROOT_DIR)/gw/mbedtls
@@ -32,7 +31,6 @@ $(PREFIX_PROG)gateway: $(addprefix $(PREFIX_O), $(OBJS))
 	cp gw/mbedtls/library/*.a $(PREFIX_O)
 	@echo Linking: $@ ....
 	$(Q)$(LD) -o $@ $^ $(LIB) $(LDLIBS) $(LDFLAGS)
-	# $(STRIP) -s $@
 
 $(PREFIX_O)gateway.o: gw/gateway.c
 	@mkdir -p $(@D)
