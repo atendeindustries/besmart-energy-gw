@@ -1,12 +1,13 @@
 #ifndef HTTPS_CLIENT_HTTPS_H
 #define HTTPS_CLIENT_HTTPS_H
 
+#include <stdbool.h>
+
 #include "mbedtls/include/mbedtls/net_sockets.h"
 #include "mbedtls/include/mbedtls/entropy.h"
 #include "mbedtls/include/mbedtls/ctr_drbg.h"
 #include "mbedtls/include/mbedtls/error.h"
 
-typedef char bool;
 typedef struct {
     mbedtls_net_context         server_fd;
     mbedtls_entropy_context     entropy;
