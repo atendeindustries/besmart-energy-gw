@@ -2,7 +2,10 @@
 #define GATEWAY_CONFIG_H
 
 /* config */
-#define DEBUG 0
+#define DEBUG 1
+
+#define SEND_TO_AZURE_IOTHUB 1
+#define SEND_TO_BESMART_ENERGY 0
 
 #define PORT ""
 #define TOKEN ""
@@ -22,6 +25,9 @@
 // sync time
 #define SYNC_TIME_FREQ_MIN 12 * 60
 #define SYNC_TIME_TH_S 5
+
+// Azure IoT Config
+#define AZURE_CONNECTION_STRING ""
 
 // ------
 

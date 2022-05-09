@@ -5,6 +5,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
 #include <sys/msg.h>
@@ -20,6 +21,8 @@
 
 #include <imxrt-multi.h>
 
+#include "azure.h"
+#include "ca_cert.h"
 
 // TODO: fix building and remove this
 void test(void) {
@@ -392,6 +395,9 @@ int main(int argc, char **argv)
     long long wait_us;
     long long lastTimeSync = 0;
 
+    HTTP_INFO hi;
+    IOTHUB_DEVICE_CLIENT_LL_HANDLE devhandle;
+
     // Find highest common frequency
     for(unsigned int gcd = 1; gcd <= ENERGY_FREQ_S && gcd <= CURRENT_FREQ_S; ++gcd) {
         if (ENERGY_FREQ_S % gcd == 0 && CURRENT_FREQ_S % gcd == 0)
@@ -402,14 +408,19 @@ int main(int argc, char **argv)
         sleep(5);
     }
 
-    HTTP_INFO hi;
+    if (SEND_TO_BESMART_ENERGY) {
+        http_setup(&hi);
+        http_set_host(&hi, API_NAME, PORT, 1);
+        http_set_token(&hi, TOKEN);
+        openConnection(&hi);
+        timestamp = getTime(&hi);
+    }
 
-    http_setup(&hi);
-    http_set_host(&hi, API_NAME, PORT, 1);
-    http_set_token(&hi, TOKEN);
-
-    openConnection(&hi);
-    timestamp = getTime(&hi);
+    if (SEND_TO_AZURE_IOTHUB) {
+        /* Temporary solution, where time is set by passing current epoch in the first argument */
+        timestamp = strtoull(argv[1], NULL, 10);
+        azure_init(AZURE_CONNECTION_STRING, ca_crt_rsa_azure, &devhandle);
+    }
 
     msg.type = 7;
     memcpy(msg.o.raw, &timestamp, sizeof(timestamp));
@@ -440,7 +451,14 @@ int main(int argc, char **argv)
             strcpy(METER_TYPE_NAME, "EM1Ph");
         }
 
-        sid = identify(&hi);
+        if (SEND_TO_BESMART_ENERGY)
+            sid = identify(&hi);
+        /* TODO: add identifying azure iothub devices */
+        if (SEND_TO_AZURE_IOTHUB) {
+            sid.client_cid = 1;
+            sid.sensor_mid = 1;
+        }
+
         if (sid.client_cid == 0 && sid.sensor_mid == 0) {
             printf("Couldn't identify meter in besmart.energy. Waiting 1m...\n");
             sleep(60);
@@ -448,14 +466,16 @@ int main(int argc, char **argv)
     } while (sid.client_cid == 0 && sid.sensor_mid == 0);
 
     if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
-\
-    lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
-    sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
+     /* TODO: update data for azure part */
+    if (SEND_TO_BESMART_ENERGY) {
+         lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
+         sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
+    }
 
     while (1) {
-	    clock_gettime(CLOCK_REALTIME, &start);
-
-        openConnection(&hi);
+        clock_gettime(CLOCK_REALTIME, &start);
+        if (SEND_TO_BESMART_ENERGY)
+            openConnection(&hi);
 
         msg.type = 5;
         if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
@@ -467,37 +487,39 @@ int main(int argc, char **argv)
         timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
-        if ((long long)timestamp - lastTimeSync >= ((int)SYNC_TIME_FREQ_MIN) * 60) {
-            if (DEBUG) printf("Checking time sync\n");
-            newTimestamp = getTime(&hi);
+        /* TODO: add synchronization for azure part */
+        if (SEND_TO_BESMART_ENERGY){
+            if ((long long)timestamp - lastTimeSync >= ((int)SYNC_TIME_FREQ_MIN) * 60) {
+                if (DEBUG) printf("Checking time sync\n");
+                newTimestamp = getTime(&hi);
 
-            msg.type = 5;
-            if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-                printf("Could not get status from metersrv (%d)\n", res);
-                sleep(30);
-                continue;
-            }
-            result = *(MeterBasicResult_t **)msg.o.raw;
-            timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
-                sizeof(MeterConf_t *) + sizeof(meter_state_t));
-
-            if (abs((long long)newTimestamp - (long long)timestamp) >= (int)SYNC_TIME_TH_S) {
-                if (DEBUG) printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
-                msg.type = 7;
-                memcpy(msg.o.raw, &newTimestamp, sizeof(newTimestamp));
-            
+                msg.type = 5;
                 if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-                    printf("Could not set meter time (%d)\n", res);
+                    printf("Could not get status from metersrv (%d)\n", res);
+                    sleep(30);
+                    continue;
                 }
-                else {
-                    timestamp = newTimestamp;
-                }
-            }
-            lastTimeSync = (long long)timestamp;
-        }
+                result = *(MeterBasicResult_t **)msg.o.raw;
+                timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
+                    sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
-        if (timestamp - (int)(lastCap / 1000) > (int)METER_PROFILE_FREQ_S) {
-            sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
+                if (abs((long long)newTimestamp - (long long)timestamp) >= (int)SYNC_TIME_TH_S) {
+                    if (DEBUG) printf("Syncing time, old time: %llu, new time: %llu\n", (long long)timestamp, (long long)newTimestamp);
+                    msg.type = 7;
+                    memcpy(msg.o.raw, &newTimestamp, sizeof(newTimestamp));
+
+                    if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
+                        printf("Could not set meter time (%d)\n", res);
+                    }
+                    else {
+                        timestamp = newTimestamp;
+                    }
+                }
+                lastTimeSync = (long long)timestamp;
+            }
+            if (timestamp - (int)(lastCap / 1000) > (int)METER_PROFILE_FREQ_S) {
+                sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
+            }
         }
 
         if (timestamp % ((int)CURRENT_FREQ_S) == 0 || timestamp % ((int)ENERGY_FREQ_S) == 0) {
@@ -520,8 +542,11 @@ int main(int argc, char **argv)
             }
 
             endDataBlock();
-
-            sendData(&hi, timestamp, &res);
+            printf("Prepared data block: %s\n", data);
+            if (SEND_TO_BESMART_ENERGY)
+                sendData(&hi, timestamp, &res);
+            if (SEND_TO_AZURE_IOTHUB)
+                azure_sendMsg(&devhandle, data);
         }
 
 	    clock_gettime(CLOCK_REALTIME, &finish);
@@ -539,6 +564,10 @@ int main(int argc, char **argv)
             if (DEBUG) printf("\nNot sleeping.\n");
         }
     }
-    http_destroy(&hi);
+    if (SEND_TO_BESMART_ENERGY)
+        http_destroy(&hi);
+    if (SEND_TO_AZURE_IOTHUB)
+        azure_deinit();
+
     return 0;
 }
