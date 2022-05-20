@@ -11,7 +11,7 @@
 static unsigned long msgConfirmations = 0;
 
 
-static void azure_sendConfirmCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void* userContextCallback)
+static void azure_sendConfirmCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, void *userContextCallback)
 {
 	(void)userContextCallback;
 	/* When a message is sent this callback will get invoked */
@@ -20,17 +20,15 @@ static void azure_sendConfirmCallback(IOTHUB_CLIENT_CONFIRMATION_RESULT result, 
 }
 
 
-static void azure_connectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* user_context)
+static void azure_connectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void *user_context)
 {
 	(void)reason;
 	(void)user_context;
 	/* It doesn't take into consideration network outages */
-	if (result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED)
-	{
+	if (result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED) {
 		printf("The device client is connected to iothub\r\n");
 	}
-	else
-	{
+	else {
 
 		printf("The device client has been disconnected\r\n");
 	}
@@ -71,8 +69,7 @@ int azure_open(const char *connectionString, const unsigned char *cert, IOTHUB_D
 	protocol = MQTT_Protocol;
 	printf("Creating IoTHub Device handle\r\n");
 	*devhandle = IoTHubDeviceClient_LL_CreateFromConnectionString(connectionString, protocol);
-	if (*devhandle == NULL)
-	{
+	if (*devhandle == NULL) {
 		fprintf(stderr, "Failure creating IotHub device. Hint: Check your connection string.\n");
 		return 1;
 	}
