@@ -2,7 +2,7 @@
 #define GATEWAY_CONFIG_H
 
 /* config */
-#define DEBUG 1
+#define DEBUG 0
 
 #define SEND_TO_AZURE_IOTHUB 1
 #define SEND_TO_BESMART_ENERGY 0
@@ -27,8 +27,8 @@
 #define SYNC_TIME_TH_S 5
 
 // Azure IoT Config
-#define AZURE_CONNECTION_STRING ""
-
+#define AZURE_CONNECTION_STRING "HostName=phoenixtesthub1.azure-devices.net;DeviceId=mydevice;SharedAccessKey=9qpDdUsQBzTQhljw+aBxaVJ/NZTG976NX9/FMCa/gM8="
+#define RECONNECT_FREQ_SEC 40 * 60
 // ------
 
 #endif

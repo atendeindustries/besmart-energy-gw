@@ -18,8 +18,10 @@
 #include "azure_c_shared_utility/crt_abstractions.h"
 #include "azure_c_shared_utility/shared_util_options.h"
 
-extern int azure_init(const char *connectionString, const unsigned char *cert, IOTHUB_DEVICE_CLIENT_LL_HANDLE *devhandle);
-extern int azure_sendMsg(IOTHUB_DEVICE_CLIENT_LL_HANDLE *devhandle, const char *msg);
+extern void azure_init(void);
 extern void azure_deinit(void);
+extern int azure_open(const char *connectionString, const unsigned char *cert, IOTHUB_DEVICE_CLIENT_LL_HANDLE *devhandle);
+extern void azure_close(IOTHUB_DEVICE_CLIENT_LL_HANDLE *devhandle);
+extern int azure_sendMsg(IOTHUB_DEVICE_CLIENT_LL_HANDLE *devhandle, const char *msg);
 
 #endif

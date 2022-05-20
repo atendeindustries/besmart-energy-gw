@@ -419,7 +419,8 @@ int main(int argc, char **argv)
     if (SEND_TO_AZURE_IOTHUB) {
         /* Temporary solution, where time is set by passing current epoch in the first argument */
         timestamp = strtoull(argv[1], NULL, 10);
-        azure_init(AZURE_CONNECTION_STRING, ca_crt_rsa_azure, &devhandle);
+        azure_init();
+        azure_open(AZURE_CONNECTION_STRING, ca_crt_rsa_azure, &devhandle);
     }
 
     msg.type = 7;
@@ -486,9 +487,15 @@ int main(int argc, char **argv)
         result = *(MeterBasicResult_t **)msg.o.raw;
         timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
-
+        /* reopen connection to Azure IoTHub */
+        if ((SEND_TO_AZURE_IOTHUB) && (((long long)timestamp - lastTimeSync) >= RECONNECT_FREQ_SEC)) {
+            if (DEBUG) printf("\nRe-opening connection...\n");
+            azure_close(&devhandle);
+            azure_open(AZURE_CONNECTION_STRING, ca_crt_rsa_azure, &devhandle);
+            lastTimeSync = (long long)timestamp;
+        }
         /* TODO: add synchronization for azure part */
-        if (SEND_TO_BESMART_ENERGY){
+        if (SEND_TO_BESMART_ENERGY) {
             if ((long long)timestamp - lastTimeSync >= ((int)SYNC_TIME_FREQ_MIN) * 60) {
                 if (DEBUG) printf("Checking time sync\n");
                 newTimestamp = getTime(&hi);
@@ -566,8 +573,10 @@ int main(int argc, char **argv)
     }
     if (SEND_TO_BESMART_ENERGY)
         http_destroy(&hi);
-    if (SEND_TO_AZURE_IOTHUB)
+    if (SEND_TO_AZURE_IOTHUB) {
+        azure_close(&devhandle);
         azure_deinit();
+    }
 
     return 0;
 }
