@@ -19,7 +19,8 @@
 #include <math.h>
 
 #include <imxrt-multi.h>
-
+#include <phoenix/arch/imxrt.h>
+#include <sys/platform.h>
 
 // TODO: fix building and remove this
 void test(void) {
@@ -46,36 +47,111 @@ struct sensorId {
     int sensor_mid;
 };
 
+
+static int gpio_setPin(oid_t oid, int pin, int state)
+{
+    msg_t msg;
+    multi_i_t *imsg = NULL;
+    int res = EOK;
+
+    msg.type = mtDevCtl;
+    msg.i.data = NULL;
+    msg.i.size = 0;
+    msg.o.data = NULL;
+    msg.o.size = 0;
+
+    imsg = (multi_i_t *)msg.i.raw;
+
+    imsg->id = oid.id;
+    imsg->gpio.type = gpio_set_port;
+    imsg->gpio.port.val = !!state << pin;
+    imsg->gpio.port.mask = 1 << pin;
+
+    if ((res = msgSend(oid.port, &msg)) < 0)
+        return res;
+
+    return res;
+}
+
+
+static int gpio_setDir(oid_t oid, int pin, int dir)
+{
+    msg_t msg;
+    multi_i_t *imsg = NULL;
+    int res = EOK;
+
+    msg.type = mtDevCtl;
+    msg.i.data = NULL;
+    msg.i.size = 0;
+    msg.o.data = NULL;
+    msg.o.size = 0;
+
+    imsg = (multi_i_t *)msg.i.raw;
+
+    imsg->id = oid.id;
+    imsg->gpio.type = gpio_set_dir;
+    imsg->gpio.dir.val = !!dir << pin;
+    imsg->gpio.dir.mask = 1 << pin;
+
+    if ((res = msgSend(oid.port, &msg)) < 0)
+        return res;
+
+    return res;
+}
+
+
+static int gpio_configMux(int mux, int sion, int mode)
+{
+    platformctl_t pctl;
+
+    pctl.action = pctl_set;
+    pctl.type = pctl_iomux;
+
+    pctl.iomux.mux = mux;
+    pctl.iomux.sion = sion;
+    pctl.iomux.mode = mode;
+
+    return platformctl(&pctl);
+}
+
+
+static void platform_config(void)
+{
+    oid_t oid;
+
+    if (lookup("/dev/gpio4", NULL, &oid) < 0) {
+        fprintf(stderr, "usbacm_powerReset: lookup failed\n");
+        return;
+    }
+
+    /* Power-up uart to enable wi-fi module communication */
+    gpio_setDir(oid, 17, 1);
+    gpio_setPin(oid, 17, 1);
+    gpio_configMux(pctl_mux_gpio_emc_17, 5, 5);
+
+
+    /* Power-up USB port to enable GSM communication */
+    gpio_setDir(oid, 18, 1);
+    gpio_setPin(oid, 18, 1);
+    gpio_configMux(pctl_mux_gpio_emc_18, 5, 5);
+}
+
+
 static void modemReset(void)
 {
-	oid_t oid;
-	msg_t msg;
-	multi_i_t *imsg = NULL;
+    oid_t oid;
 
-	if (lookup("/dev/gpio4", NULL, &oid) < 0) {
-		fprintf(stderr, "usbacm_powerReset: lookup failed\n");
-		return;
-	}
+    if (lookup("/dev/gpio4", NULL, &oid) < 0) {
+        fprintf(stderr, "usbacm_powerReset: lookup failed\n");
+        return;
+    }
 
-	msg.type = mtDevCtl;
-	msg.i.data = NULL;
-	msg.i.size = 0;
-	msg.o.data = NULL;
-	msg.o.size = 0;
-
-	imsg = (multi_i_t *)msg.i.raw;
-
-	imsg->id = oid.id;
-	imsg->gpio.type = gpio_set_port;
-	imsg->gpio.port.val = 0 << 18;
-	imsg->gpio.port.mask = 1 << 18;
-
-	msgSend(oid.port, &msg);
+    /* Reset USB port */
+    gpio_setPin(oid, 17, 0);
 	sleep(1);
-	imsg->gpio.port.val = 1 << 18;
-	msgSend(oid.port, &msg);
+    gpio_setPin(oid, 17, 1);
 
-	fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
+    fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
 }
 
 /* Implementation of hardware entropy source function for Phoenix-RTOS imxrt1064 platform*/
@@ -391,6 +467,9 @@ int main(int argc, char **argv)
     struct timespec finish;
     long long wait_us;
     long long lastTimeSync = 0;
+
+
+    platform_config();
 
     // Find highest common frequency
     for(unsigned int gcd = 1; gcd <= ENERGY_FREQ_S && gcd <= CURRENT_FREQ_S; ++gcd) {
