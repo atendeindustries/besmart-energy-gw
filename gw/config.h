@@ -15,6 +15,14 @@
 #define CURRENT_RATIO 1
 #define VOLTAGE_RATIO 1
 
+#define MODE_GSM  0
+#define MODE_WIFI 1
+
+/* Possible modes are MODE_GSM and MODE_WIFI */
+#ifndef CONNECTION_MODE
+#define CONNECTION_MODE MODE_WIFI
+#endif
+
 // ENERGY_FREQ_S <= METER_PROFILE_FREQ_S
 #define ENERGY_FREQ_S 15 * 60
 #define CURRENT_FREQ_S 60
