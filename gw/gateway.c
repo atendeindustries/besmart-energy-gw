@@ -21,6 +21,8 @@
 #include <imxrt-multi.h>
 #include <phoenix/arch/imxrt.h>
 #include <sys/platform.h>
+#include <termios.h>
+#include <fcntl.h>
 
 // TODO: fix building and remove this
 void test(void) {
@@ -114,35 +116,67 @@ static int gpio_configMux(int mux, int sion, int mode)
     return platformctl(&pctl);
 }
 
+#if CONNECTION_MODE == MODE_WIFI
 
-static void platform_config(void)
+static int serial_open(const char *devname, speed_t speed)
 {
     oid_t oid;
+    int fd, ret, cnt;
+    struct termios tio;
 
-    if (lookup("/dev/gpio4", NULL, &oid) < 0) {
-        fprintf(stderr, "usbacm_powerReset: lookup failed\n");
-        return;
+    /* try if uart is registered */
+    for (cnt = 0; (ret = lookup(devname, NULL, &oid)) < 0; cnt++) {
+        usleep(200 * 1000);
+        if (cnt > 3) {
+            return ret;
+        }
     }
 
-    /* Power-up uart to enable wi-fi module communication */
-    gpio_setDir(oid, 17, 1);
-    gpio_setPin(oid, 17, 1);
-    gpio_configMux(pctl_mux_gpio_emc_17, 5, 5);
+    if ((fd = open(devname, O_RDWR | O_NOCTTY | O_NONBLOCK)) < 0) {
+        return fd;
+    }
 
+    memset(&tio, 0, sizeof(tio));
 
-    /* Power-up USB port to enable GSM communication */
-    gpio_setDir(oid, 18, 1);
-    gpio_setPin(oid, 18, 1);
-    gpio_configMux(pctl_mux_gpio_emc_18, 5, 5);
+    if ((ret = tcgetattr(fd, &tio)) < 0) {
+        goto on_error;
+    }
+
+    if ((ret = cfsetspeed(&tio, speed)) < 0) {
+        goto on_error;
+    }
+
+    tio.c_cc[VTIME] = 0; /* no timeout */
+    tio.c_cc[VMIN] = 0;  /* polling */
+
+    /* libtty does not support yet: IXON|IXOFF|IXANY|PARMRK|INPCK|IGNPAR */
+    tio.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    tio.c_oflag &= ~OPOST;
+    tio.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    tio.c_cflag &= ~(CSIZE | CSTOPB);
+
+    tio.c_cflag |= CS8 | CREAD | CLOCAL;
+
+    if ((ret = tcflush(fd, TCIOFLUSH)) < 0) {
+        goto on_error;
+    }
+
+    if ((ret = tcsetattr(fd, TCSANOW, &tio)) < 0) {
+        goto on_error;
+    }
+
+on_error:
+    close(fd);
+    return ret;
 }
 
+#elif CONNECTION_MODE == MODE_GSM
 
 static void modemReset(void)
 {
     oid_t oid;
 
     if (lookup("/dev/gpio4", NULL, &oid) < 0) {
-        fprintf(stderr, "usbacm_powerReset: lookup failed\n");
         return;
     }
 
@@ -153,6 +187,36 @@ static void modemReset(void)
 
     fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
 }
+#endif /* CONNECTION_MODE */
+
+
+static void platform_config(void)
+{
+    oid_t oid;
+
+    while (lookup("/dev/gpio4", NULL, &oid) < 0) {
+        sleep(1);
+    }
+
+#if CONNECTION_MODE == MODE_WIFI
+    /* Power-up uart to enable wi-fi module communication */
+    gpio_setDir(oid, 17, 1);
+    gpio_setPin(oid, 17, 1);
+    gpio_configMux(pctl_mux_gpio_emc_17, 5, 5);
+
+    /* Configure uart to respond do AT commands issued by the pppos driver */
+	while (serial_open("/dev/uart3", B115200) < 0) {
+        sleep(1);
+    }
+
+#elif CONNECTION_MODE == MODE_GSM
+    /* Power-up USB port to enable GSM communication */
+    gpio_setDir(oid, 18, 1);
+    gpio_setPin(oid, 18, 1);
+    gpio_configMux(pctl_mux_gpio_emc_18, 5, 5);
+#endif /* CONNECTION_MODE */
+}
+
 
 /* Implementation of hardware entropy source function for Phoenix-RTOS imxrt1064 platform*/
 int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
@@ -192,7 +256,9 @@ void reOpenConnection(HTTP_INFO *hi) {
     do {
         http_close(hi);
         if (count % 10 == 0) {
+#if CONNECTION_MODE == MODE_GSM
             modemReset();
+#endif /* CONNECTION_MODE */
             sleep(30);
         }
         ret = http_open(hi);
@@ -467,7 +533,6 @@ int main(int argc, char **argv)
     struct timespec finish;
     long long wait_us;
     long long lastTimeSync = 0;
-
 
     platform_config();
 
