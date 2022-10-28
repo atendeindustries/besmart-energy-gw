@@ -20,7 +20,7 @@
 
 /* Possible modes are MODE_GSM and MODE_WIFI */
 #ifndef CONNECTION_MODE
-#define CONNECTION_MODE MODE_WIFI
+#define CONNECTION_MODE MODE_GSM
 #endif
 
 // ENERGY_FREQ_S <= METER_PROFILE_FREQ_S
