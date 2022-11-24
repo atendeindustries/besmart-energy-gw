@@ -181,9 +181,9 @@ static void modemReset(void)
     }
 
     /* Reset USB port */
-    gpio_setPin(oid, 17, 0);
+    gpio_setPin(oid, 18, 0);
 	sleep(1);
-    gpio_setPin(oid, 17, 1);
+    gpio_setPin(oid, 18, 1);
 
     fprintf(stderr, "gateway: Modem not responding. Power down USB.\n");
 }
@@ -592,7 +592,7 @@ int main(int argc, char **argv)
     } while (sid.client_cid == 0 && sid.sensor_mid == 0);
 
     if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
-\
+
     lastCap = getLastCap(&hi, sid.client_cid, sid.sensor_mid);
     sendProfileData(&hi, &oid, sid.client_cid, sid.sensor_mid, timestamp);
 
