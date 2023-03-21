@@ -302,7 +302,7 @@ time_t getTime(HTTP_INFO *hi) {
     return time;
 }
 
-struct sensorId identifyRequest(HTTP_INFO *hi) {
+struct sensorId identify(HTTP_INFO *hi) {
     int res;
 
     sprintf(endpoint, "%s?meter_dev=%s&meter_type_name=%s", FIND_STATE_ENDPOINT, SERIAL, METER_TYPE_NAME);
@@ -330,44 +330,6 @@ struct sensorId identifyRequest(HTTP_INFO *hi) {
             stateSince = 0;
         }
     }
-    return sid;
-}
-
-struct sensorId identify(HTTP_INFO *hi) {
-    msg_t msg;
-    int res;
-    struct sensorId sid;
-    MeterBasicResult_t *result;
-    time_t timestamp;
-    meter_state_t state;
-
-    do {
-        msg.type = 5;
-        if ((res = msgSend(oid.port, &msg)) < 0 || msg.o.io.err == -1) {
-            printf("Could not get status from metersrv (%d)\n", res);
-            sleep(5);
-            continue;
-        }
-        result = *(MeterBasicResult_t **)msg.o.raw;
-        timestamp = *(time_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) +
-            sizeof(MeterConf_t *) + sizeof(meter_state_t));
-        state = *(meter_state_t *)(msg.o.raw + sizeof(MeterBasicResult_t *) + sizeof(MeterConf_t *));
-        strcpy(SERIAL, state.serial);
-        if (SERIAL[5] == '3') {
-            PHASES = 3;
-            strcpy(METER_TYPE_NAME, "EM3Ph");
-        } else {
-            PHASES = 1;
-            strcpy(METER_TYPE_NAME, "EM1Ph");
-        }
-
-        sid = identify(&hi);
-        if (sid.client_cid == 0 && sid.sensor_mid == 0) {
-            printf("Couldn't identify meter in besmart.energy. Waiting 1m...\n");
-            sleep(60);
-        }
-    } while (sid.client_cid == 0 && sid.sensor_mid == 0);
-
     return sid;
 }
 
