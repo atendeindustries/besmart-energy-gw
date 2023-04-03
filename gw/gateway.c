@@ -45,8 +45,8 @@ static int fractionLen;
 static bool connectionOpened = 0;
 
 typedef struct sensorId {
-    unsigned long client_cid;
-    unsigned long long sensor_mid;
+    long client_cid;
+    long long sensor_mid;
 } sensor_id;
 
 
@@ -322,8 +322,8 @@ sensor_id identify(HTTP_INFO *hi) {
     char *client_cid_pos = strstr(response, "client_cid\"");
     char *sensor_mid_pos = strstr(response, "sensor_mid\"");
     if (client_cid_pos != NULL && sensor_mid_pos != NULL) {
-        sscanf(client_cid_pos, "%*[^0-9]%lu", &sid.client_cid);
-        sscanf(sensor_mid_pos, "%*[^0-9]%llu", &sid.sensor_mid);
+        sscanf(client_cid_pos, "%*[^0-9]%ld", &sid.client_cid);
+        sscanf(sensor_mid_pos, "%*[^0-9]%lld", &sid.sensor_mid);
     }
     char *since_pos = strstr(response, "since\"");
     if (since_pos != NULL) {
@@ -649,12 +649,13 @@ int main(int argc, char **argv)
             lastTimeSync = (long long)timestamp;
         }
 
+
         if (timestamp - (int)(lastCap / 1000) > (int)METER_PROFILE_FREQ_S) {
             sendProfileData(&hi, &oid, &sid, timestamp);
         }
 
-        isEnergyFreq = timestamp % ((int)CURRENT_FREQ_S) == 0;
-        isCurrentFreq = timestamp % ((int)ENERGY_FREQ_S) == 0;
+        isEnergyFreq = timestamp % ((int)ENERGY_FREQ_S) == 0;
+        isCurrentFreq = timestamp % ((int)CURRENT_FREQ_S) == 0;
 
         if (isCurrentFreq || isEnergyFreq) {
             startDataBlock();
