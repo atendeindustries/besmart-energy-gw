@@ -44,10 +44,10 @@ static int fraction;
 static int fractionLen;
 static bool connectionOpened = 0;
 
-struct sensorId {
-    long client_cid;
-    long long sensor_mid;
-};
+typedef struct sensorId {
+    unsigned long client_cid;
+    unsigned long long sensor_mid;
+} sensor_id;
 
 
 static int gpio_setPin(oid_t oid, int pin, int state)
@@ -302,7 +302,7 @@ time_t getTime(HTTP_INFO *hi) {
     return time;
 }
 
-struct sensorId identify(HTTP_INFO *hi) {
+sensor_id identify(HTTP_INFO *hi) {
     int res;
 
     sprintf(endpoint, "%s?meter_dev=%s&meter_type_name=%s", FIND_STATE_ENDPOINT, SERIAL, METER_TYPE_NAME);
@@ -313,23 +313,26 @@ struct sensorId identify(HTTP_INFO *hi) {
     if (res < 0) reOpenConnection(hi);
     if (DEBUG) printf("%d\nresponse: %s\n", res, response);
 
-    struct sensorId sid;
+    sensor_id sid;
+    sid.client_cid = sid.sensor_mid = 0;
     if (res < 0) {
-        sid.client_cid = sid.sensor_mid = 0;
+        return sid;
     } 
-    else {
-        char *client_cid_pos = strstr(response, "client_cid\"");
+
+    char *client_cid_pos = strstr(response, "client_cid\"");
+    char *sensor_mid_pos = strstr(response, "sensor_mid\"");
+    if (client_cid_pos != NULL && sensor_mid_pos != NULL) {
         sscanf(client_cid_pos, "%*[^0-9]%lu", &sid.client_cid);
-        char *sensor_mid_pos = strstr(response, "sensor_mid\"");
         sscanf(sensor_mid_pos, "%*[^0-9]%llu", &sid.sensor_mid);
-        char *since_pos = strstr(response, "since\"");
-        if (since_pos != NULL) {
-            sscanf(since_pos, "%*[^0-9]%llu", &stateSince);
-        }
-        else {
-            stateSince = 0;
-        }
     }
+    char *since_pos = strstr(response, "since\"");
+    if (since_pos != NULL) {
+        sscanf(since_pos, "%*[^0-9]%llu", &stateSince);
+    }
+    else {
+        stateSince = 0;
+    }
+
     return sid;
 }
 
@@ -346,7 +349,7 @@ int count_digits_of_integer(int integer) {
     return count;
 }
 
-void addDataToRequest(struct sensorId *sid, long moid, time_t timestamp, double value) {
+void addDataToRequest(sensor_id *sid, long moid, time_t timestamp, double value) {
     decimal = (int)value;
     fraction = (int)round((value - ((int)value)) * 100000000);
     fractionLen =  8 - count_digits_of_integer(fraction);
@@ -378,7 +381,7 @@ void addDataToRequest(struct sensorId *sid, long moid, time_t timestamp, double 
     );
 }
 
-unsigned long long getLastCap(HTTP_INFO *hi, struct sensorId *sid) {
+unsigned long long getLastCap(HTTP_INFO *hi, sensor_id *sid) {
     int ret;
     sprintf(endpoint, "%s/%ld.%lld/signals/cap?signal_type_moid=32&signal_origin_id=1", SENSORS_API, sid->client_cid, sid->sensor_mid);
     ret = http_get(hi, endpoint, response, sizeof(response));
@@ -425,34 +428,34 @@ void sendData(HTTP_INFO *hi, time_t timestamp, int *res, bool updateLastCap) {
     }
 }
 
-void prepareCurrentData(struct sensorId *sid, time_t timestamp, MeterBasicResult_t *result) {
-    addDataToRequest(&sid, 103, timestamp, (double)(result->frequency)); // freq
-    addDataToRequest(&sid, 53, timestamp, (double)(result->u_rms_avg[0] * VOLTAGE_RATIO)); // V1
-    addDataToRequest(&sid, 56, timestamp, (double)(result->i_rms_avg[0] * CURRENT_RATIO)); // I1
+void prepareCurrentData(sensor_id *sid, time_t timestamp, MeterBasicResult_t *result) {
+    addDataToRequest(sid, 103, timestamp, (double)(result->frequency)); // freq
+    addDataToRequest(sid, 53, timestamp, (double)(result->u_rms_avg[0] * VOLTAGE_RATIO)); // V1
+    addDataToRequest(sid, 56, timestamp, (double)(result->i_rms_avg[0] * CURRENT_RATIO)); // I1
     if (PHASES == 3) {
-        addDataToRequest(&sid, 54, timestamp, (double)(result->u_rms_avg[1] * VOLTAGE_RATIO)); // V2
-        addDataToRequest(&sid, 57, timestamp, (double)(result->i_rms_avg[1] * CURRENT_RATIO)); // I2
-        addDataToRequest(&sid, 55, timestamp, (double)(result->u_rms_avg[2] * VOLTAGE_RATIO)); // V3
-        addDataToRequest(&sid, 58, timestamp, (double)(result->i_rms_avg[2] * CURRENT_RATIO)); // I3
+        addDataToRequest(sid, 54, timestamp, (double)(result->u_rms_avg[1] * VOLTAGE_RATIO)); // V2
+        addDataToRequest(sid, 57, timestamp, (double)(result->i_rms_avg[1] * CURRENT_RATIO)); // I2
+        addDataToRequest(sid, 55, timestamp, (double)(result->u_rms_avg[2] * VOLTAGE_RATIO)); // V3
+        addDataToRequest(sid, 58, timestamp, (double)(result->i_rms_avg[2] * CURRENT_RATIO)); // I3
     }
 }
 
-void prepareEnergyData(struct sensorId *sid, time_t timestamp, MeterBasicResult_t *result) {
-    addDataToRequest(&sid, 32, timestamp,
+void prepareEnergyData(sensor_id *sid, time_t timestamp, MeterBasicResult_t *result) {
+    addDataToRequest(sid, 32, timestamp,
         (double)(((double)result->eactive_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 34, timestamp,
+    addDataToRequest(sid, 34, timestamp,
         (double)(((double)result->eactive_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 44, timestamp,
+    addDataToRequest(sid, 44, timestamp,
         (double)(((double)result->eapparent_plus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 46, timestamp,
+    addDataToRequest(sid, 46, timestamp,
         (double)(((double)result->eapparent_minus_sum.value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 36, timestamp,
+    addDataToRequest(sid, 36, timestamp,
         (double)(((double)result->ereactive_sum[0].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 38, timestamp,
+    addDataToRequest(sid, 38, timestamp,
         (double)(((double)result->ereactive_sum[1].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 40, timestamp,
+    addDataToRequest(sid, 40, timestamp,
         (double)(((double)result->ereactive_sum[2].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
-    addDataToRequest(&sid, 42, timestamp,
+    addDataToRequest(sid, 42, timestamp,
         (double)(((double)result->ereactive_sum[3].value) / 1000.0 / 3600.0 * CURRENT_RATIO * VOLTAGE_RATIO));
 }
 
@@ -467,7 +470,7 @@ void endDataBlock(void) {
     dataOffset = 0;
 }
 
-void sendProfileData(HTTP_INFO *hi, oid_t *oid, struct sensorId *sid, unsigned long long current) {
+void sendProfileData(HTTP_INFO *hi, oid_t *oid, sensor_id *sid, unsigned long long current) {
     MeterBasicResult_t *result;
     time_t timestamp;
     unsigned long long tmp = lastCap / 1000;
@@ -496,7 +499,7 @@ void sendProfileData(HTTP_INFO *hi, oid_t *oid, struct sensorId *sid, unsigned l
             continue;
         }
         startDataBlock();
-        prepareEnergyData(&sid, timestamp * 1000, result);
+        prepareEnergyData(sid, timestamp * 1000, result);
         endDataBlock();
         sendData(hi, timestamp, &res, 1);
 
@@ -519,7 +522,7 @@ int main(int argc, char **argv)
     meter_state_t state;
     time_t timestamp;
     time_t newTimestamp;
-    struct sensorId sid;
+    sensor_id sid;
     sid.client_cid = 0;
     sid.sensor_mid = 0;
     unsigned int freq = 1;
@@ -587,7 +590,7 @@ int main(int argc, char **argv)
         }
     } while (sid.client_cid == 0 && sid.sensor_mid == 0);
 
-    if (DEBUG) printf("Identified (cid: %d, mid: %d)\n\n", sid.client_cid, sid.sensor_mid);
+    if (DEBUG) printf("Identified (cid: %ld, mid: %lld)\n\n", sid.client_cid, sid.sensor_mid);
 
     lastCap = getLastCap(&hi, &sid);
     sendProfileData(&hi, &oid, &sid, timestamp);
@@ -608,7 +611,7 @@ int main(int argc, char **argv)
             sizeof(MeterConf_t *) + sizeof(meter_state_t));
 
         if ((long long)timestamp - lastTimeSync >= ((int)SYNC_FREQ_MIN) * 60) {
-            if (DEBUG) printf("Checking sensor identification\n")
+            if (DEBUG) printf("Checking sensor identification\n");
 
             do {
                 sid = identify(&hi);
@@ -650,8 +653,8 @@ int main(int argc, char **argv)
             sendProfileData(&hi, &oid, &sid, timestamp);
         }
 
-        isEnergyFreq = timestamp % ((int)CURRENT_FREQ_S) == 0
-        isCurrentFreq = timestamp % ((int)ENERGY_FREQ_S) == 0
+        isEnergyFreq = timestamp % ((int)CURRENT_FREQ_S) == 0;
+        isCurrentFreq = timestamp % ((int)ENERGY_FREQ_S) == 0;
 
         if (isCurrentFreq || isEnergyFreq) {
             startDataBlock();
